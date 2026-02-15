@@ -1,1 +1,0 @@
-"""AutoAtlas Pro test suite."""
