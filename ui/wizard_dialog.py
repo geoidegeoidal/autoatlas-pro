@@ -257,7 +257,6 @@ class WizardDialog(QDialog):
         row_ramp.addWidget(QLabel(self.tr("Color Ramp:")))
         self._ramp_combo = QComboBox()
         ramp_names = QgsStyle.defaultStyle().colorRampNames()
-        ramp_names = QgsStyle.defaultStyle().colorRampNames()
         self._ramp_combo.addItems(sorted(ramp_names))
         idx = self._ramp_combo.findText("Spectral")
         if idx >= 0:
@@ -274,10 +273,6 @@ class WizardDialog(QDialog):
         self._base_map_combo.setCurrentText(BaseMapType.NONE.value)
         row_base.addWidget(self._base_map_combo, stretch=1)
         map_layout.addLayout(row_base)
-
-        layout.addWidget(grp_map)
-
-        layout.addWidget(grp_map)
 
         layout.addWidget(grp_map)
 

@@ -221,7 +221,6 @@ class ReportConfig:
     output_dir: Path = Path(".")
     dpi: int = 300
     feature_ids: Optional[List[Any]] = None
-    feature_ids: Optional[List[Any]] = None
     variable_alias: str = ""
     base_map: BaseMapType = BaseMapType.NONE
 

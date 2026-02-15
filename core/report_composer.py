@@ -1,6 +1,6 @@
 """Report composer for AutoAtlas Pro.
 
-Orchestrates the full pipeline: data engine → map renderer → chart engine → PDF/PNG.
+Orchestrates the full pipeline: data engine → map renderer → PDF/PNG.
 Designed for stability: caches shared data, reuses renderers, cleans temp files,
 and yields control to the event loop between reports to keep QGIS responsive.
 """
@@ -12,67 +12,114 @@ import os
 import tempfile
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
+from urllib.parse import quote
 
 from qgis.core import (
+    Qgis,
     QgsLayoutExporter,
+    QgsLayoutItemLabel,
+    QgsLayoutItemMap,
     QgsLayoutItemPicture,
+    QgsLayoutItemShape,
+    QgsLayoutMeasurement,
     QgsLayoutPoint,
     QgsLayoutSize,
     QgsPrintLayout,
     QgsProject,
-    QgsVectorLayer,
-    QgsLayoutItemLabel,
     QgsRasterLayer,
+    QgsVectorLayer,
 )
 from qgis.PyQt.QtCore import Qt
-from qgis.PyQt.QtGui import QFont, QColor
+from qgis.PyQt.QtGui import QColor, QFont
 from qgis.PyQt.QtWidgets import QApplication
 
 from .chart_engine import ChartEngine
 from .data_engine import DataEngine
 from .map_renderer import MapRenderer
-from .models import ChartType, MapStyle, OutputFormat, ReportConfig, TemplateConfig, BaseMapType
+from .models import (
+    BaseMapType,
+    ChartType,
+    MapStyle,
+    OutputFormat,
+    ReportConfig,
+    TemplateConfig,
+)
 
+# ---------------------------------------------------------------------------
+# XYZ Tile URL registry
+# ---------------------------------------------------------------------------
+_BASE_MAP_URLS: Dict[BaseMapType, Tuple[str, str, str]] = {
+    # type → (url_template, zmax, zmin)
+    BaseMapType.OSM: (
+        "https://tile.openstreetmap.org/{z}/{x}/{y}.png", "19", "0",
+    ),
+    BaseMapType.POSITRON: (
+        "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png", "20", "0",
+    ),
+    BaseMapType.DARK_MATTER: (
+        "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png", "20", "0",
+    ),
+    BaseMapType.GOOGLE_MAPS: (
+        "https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}", "19", "0",
+    ),
+    BaseMapType.GOOGLE_SATELLITE: (
+        "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", "19", "0",
+    ),
+    BaseMapType.GOOGLE_HYBRID: (
+        "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}", "19", "0",
+    ),
+    BaseMapType.ESRI_SATELLITE: (
+        "https://server.arcgisonline.com/ArcGIS/rest/services/"
+        "World_Imagery/MapServer/tile/{z}/{y}/{x}", "17", "0",
+    ),
+    BaseMapType.ESRI_STREET: (
+        "https://server.arcgisonline.com/ArcGIS/rest/services/"
+        "World_Street_Map/MapServer/tile/{z}/{y}/{x}", "17", "0",
+    ),
+    BaseMapType.ESRI_TOPOGRAPHY: (
+        "https://services.arcgisonline.com/ArcGIS/rest/services/"
+        "World_Topo_Map/MapServer/tile/{z}/{y}/{x}", "20", "0",
+    ),
+    BaseMapType.BING_SATELLITE: (
+        "http://ecn.t3.tiles.virtualearth.net/tiles/a{q}.jpeg?g=1", "19", "1",
+    ),
+}
 
-# Default template
+# ---------------------------------------------------------------------------
+# Default template — Premium "Atlas Pro" layout (A4 Landscape)
+# ---------------------------------------------------------------------------
 _DEFAULT_TEMPLATE = TemplateConfig(
-    name="default",
-    display_name="Map Only",
+    name="atlas_pro",
+    display_name="Atlas Pro",
     page_width_mm=297.0,
     page_height_mm=210.0,
-    map_rect=(10.0, 40.0, 220.0, 160.0),
-    chart_slots=[],  # No charts
-    title_rect=(10.0, 10.0, 277.0, 15.0),
-    subtitle_rect=(10.0, 25.0, 277.0, 10.0),
-    north_arrow_rect=(216.0, 42.0, 12.0, 12.0),  # Top-right of map
-    color_palette={},
+    # Map fills the main area leaving room for header, footer, and legend column
+    map_rect=(8.0, 32.0, 225.0, 166.0),
+    chart_slots=[],
+    title_rect=(8.0, 4.0, 281.0, 14.0),
+    subtitle_rect=(8.0, 17.0, 281.0, 10.0),
+    north_arrow_rect=(218.0, 34.0, 12.0, 12.0),
+    color_palette={
+        "header_bg": "#1B2838",
+        "footer_bg": "#1B2838",
+        "title_color": "#FFFFFF",
+        "subtitle_color": "#A8DADC",
+        "footer_color": "#8899AA",
+        "map_border": "#2C3E50",
+        "legend_bg": "#F8F9FA",
+    },
     font_family="Arial",
 )
 
 
 class ReportComposer:
-    """Orchestrates report generation for all territorial units.
-
-    Key stability features:
-    - Applies renderer ONCE before the batch loop (not per feature)
-    - Pre-computes stats and ranking ONCE (shared across all reports)
-    - Cleans up temp chart image files after each export
-    - Calls QApplication.processEvents() between reports
-    - Never adds layouts to the project manager (avoids UI interference)
-    """
+    """Orchestrates report generation for all territorial units."""
 
     def __init__(self, project: Optional[QgsProject] = None) -> None:
         self._project = project or QgsProject.instance()
         self._data_engine = DataEngine()
         self._map_renderer = MapRenderer(self._project)
-        # Force matplotlib for batch — plotly+kaleido spawns a Chromium
-        # subprocess per chart, which freezes QGIS on large datasets.
-        # Use light theme by default (dark_theme=False).
         self._chart_engine = ChartEngine(use_plotly=False, dark_theme=False)
-
-    def _resolve_template(self) -> TemplateConfig:
-        """Return the default template config."""
-        return _DEFAULT_TEMPLATE
 
     # ------------------------------------------------------------------
     # Batch generation
@@ -83,15 +130,7 @@ class ReportComposer:
         config: ReportConfig,
         progress_callback: Optional[Callable[[int, int, str], None]] = None,
     ) -> List[Path]:
-        """Generate reports for all (or specified) features.
-
-        Args:
-            config: Full report configuration.
-            progress_callback: Optional (current, total, name) callback.
-
-        Returns:
-            List of output file paths.
-        """
+        """Generate reports for all (or specified) features."""
         layer = self._resolve_layer(config.layer_id)
         self._data_engine.load(
             layer, config.id_field, config.name_field, config.indicator_fields
@@ -105,31 +144,18 @@ class ReportComposer:
 
         primary_field = config.indicator_fields[0]
 
-        # ── Pre-compute shared data ONCE ──
-        # Apply renderer once (not per feature — this was causing crashes)
-        if config.map_style == MapStyle.CHOROPLETH:
-            self._map_renderer._apply_graduated_renderer(
-                layer, primary_field, config.color_ramp_name, num_classes=5
-            )
-        elif config.map_style == MapStyle.CATEGORICAL:
-            self._map_renderer._apply_categorical_renderer(
-                layer, primary_field
-            )
+        # ── Apply renderer ONCE ──
+        self._apply_renderer(layer, config, primary_field)
 
         stats = self._data_engine.compute_stats(primary_field)
         ranking = self._data_engine.compute_ranking(primary_field, ascending=False)
 
-        # Pre-render charts that are the SAME for all features (ranking stays the same)
-        shared_charts: Dict[str, bytes] = {}
-        if ChartType.RANKING in config.chart_types:
-            # Ranking chart without highlight — we'll render per-feature below
-            pass  # ranking varies per feature (highlight changes)
-
-        if ChartType.DISTRIBUTION in config.chart_types:
-            # Base distribution without highlight — also varies per feature
-            pass
-
         template = config.template or _DEFAULT_TEMPLATE
+
+        # ── Pre-create base map layer ONCE (shared across batch) ──
+        base_layer = self._create_base_map_layer(config.base_map)
+
+        errors: Dict[str, int] = {}
 
         for i, fid in enumerate(feature_ids):
             name = self._data_engine._names_cache.get(fid, str(fid))
@@ -137,22 +163,21 @@ class ReportComposer:
             if progress_callback:
                 progress_callback(i + 1, total, name)
 
-            # Yield to event loop to keep QGIS alive
             QApplication.processEvents()
 
             try:
-                path = self._generate_single_fast(
+                path = self._generate_single(
                     config, layer, template, fid, name,
-                    primary_field, stats, ranking,
+                    primary_field, stats, ranking, base_layer,
                 )
                 output_paths.append(path)
             except Exception as exc:
-                # Log but don't crash the entire batch
                 import traceback
                 traceback.print_exc()
+                msg = str(exc)
+                errors[msg] = errors.get(msg, 0) + 1
                 continue
 
-            # Periodic GC to prevent memory buildup
             if i > 0 and i % 10 == 0:
                 gc.collect()
 
@@ -163,41 +188,24 @@ class ReportComposer:
     # ------------------------------------------------------------------
 
     def generate_preview(self, config: ReportConfig) -> Path:
-        """Generate a single preview report (first feature) as PNG.
-
-        Args:
-            config: Report configuration.
-
-        Returns:
-            Path to the generated preview image.
-        """
+        """Generate a single preview report (first feature) as PNG."""
         layer = self._resolve_layer(config.layer_id)
         self._data_engine.load(
             layer, config.id_field, config.name_field, config.indicator_fields
         )
 
         primary_field = config.indicator_fields[0]
+        self._apply_renderer(layer, config, primary_field)
 
-        # Apply renderer
-        if config.map_style == MapStyle.CHOROPLETH:
-            self._map_renderer._apply_graduated_renderer(
-                layer, primary_field, config.color_ramp_name, num_classes=5
-            )
-        elif config.map_style == MapStyle.CATEGORICAL:
-            self._map_renderer._apply_categorical_renderer(layer, primary_field)
-
-        # Compute stats (needed for ranking/charts)
         stats = self._data_engine.compute_stats(primary_field)
         ranking = self._data_engine.compute_ranking(primary_field, ascending=False)
 
-        # Pick first feature
         fids = self._data_engine.feature_ids
         if not fids:
             raise ValueError("Layer has no features.")
         target_fid = fids[0]
         name = self._data_engine._names_cache.get(target_fid, str(target_fid))
 
-        # Force PNG for preview
         preview_config = ReportConfig(
             layer_id=config.layer_id,
             id_field=config.id_field,
@@ -206,28 +214,27 @@ class ReportComposer:
             map_style=config.map_style,
             color_ramp_name=config.color_ramp_name,
             chart_types=config.chart_types,
-            template=config.template or self._resolve_template(),
+            template=config.template or _DEFAULT_TEMPLATE,
             output_format=OutputFormat.PNG,
             output_dir=Path(tempfile.gettempdir()),
-            dpi=96,  # Screen resolution is enough for preview
+            dpi=96,
+            base_map=config.base_map,
+            variable_alias=config.variable_alias,
         )
 
-        return self._generate_single_fast(
-            preview_config,
-            layer,
-            preview_config.template,
-            target_fid,
-            f"preview_{target_fid}",
-            primary_field,
-            stats,
-            ranking,
+        base_layer = self._create_base_map_layer(preview_config.base_map)
+
+        return self._generate_single(
+            preview_config, layer, preview_config.template,
+            target_fid, f"preview_{name}",
+            primary_field, stats, ranking, base_layer,
         )
 
     # ------------------------------------------------------------------
-    # Single report (optimized — no renderer re-application)
+    # Single report (core layout engine)
     # ------------------------------------------------------------------
 
-    def _generate_single_fast(
+    def _generate_single(
         self,
         config: ReportConfig,
         layer: QgsVectorLayer,
@@ -237,13 +244,14 @@ class ReportComposer:
         primary_field: str,
         stats: Any,
         ranking: Any,
+        base_layer: Optional[QgsRasterLayer] = None,
     ) -> Path:
-        """Generate a single report. Renderer already applied to layer."""
+        """Generate a single report page with premium layout."""
 
         safe_name = self._sanitize_filename(name)
-        temp_files: List[str] = []
+        palette = template.color_palette or _DEFAULT_TEMPLATE.color_palette
 
-        # Create layout (NOT added to project manager — avoids UI interference)
+        # ── Create layout ──
         layout = QgsPrintLayout(self._project)
         layout.initializeDefaults()
 
@@ -252,175 +260,200 @@ class ReportComposer:
             QgsLayoutSize(template.page_width_mm, template.page_height_mm)
         )
 
-        # --- Title ---
-        self._map_renderer.add_title(
-            layout, name, template.title_rect, font_size=18, bold=True
+        pw = template.page_width_mm  # 297
+        ph = template.page_height_mm  # 210
+
+        # ══════════════════════════════════════════════════════════════
+        # 1. HEADER BAND — dark bar with title & subtitle
+        # ══════════════════════════════════════════════════════════════
+        header_h = 28.0
+        self._add_rect(layout, (0, 0, pw, header_h), palette.get("header_bg", "#1B2838"))
+
+        # Title — feature name, white, bold, centered
+        self._add_label(
+            layout, name,
+            rect_mm=(0, 3, pw, 14),
+            font_size=20, bold=True,
+            halign=Qt.AlignCenter, valign=Qt.AlignVCenter,
+            color=palette.get("title_color", "#FFFFFF"),
         )
 
-        # --- Subtitle ---
-        if template.subtitle_rect and config.indicator_fields:
-            self._map_renderer.add_title(
-                layout, primary_field, template.subtitle_rect,
-                font_size=11, bold=False,
-            )
+        # Subtitle — variable alias or field name
+        subtitle = config.variable_alias or primary_field
+        self._add_label(
+            layout, subtitle,
+            rect_mm=(0, 16, pw, 10),
+            font_size=11, bold=False,
+            halign=Qt.AlignCenter, valign=Qt.AlignVCenter,
+            color=palette.get("subtitle_color", "#A8DADC"),
+        )
 
-        if template.subtitle_rect:
-            subtitle = config.variable_alias or primary_field
-            self._add_label(
-                layout,
-                subtitle,
-                template.subtitle_rect,
-                font_size=14,
-                color="#555555",
-            )
+        # ══════════════════════════════════════════════════════════════
+        # 2. MAP — fills main area
+        # ══════════════════════════════════════════════════════════════
+        map_x, map_y = 8.0, header_h + 4  # 32
+        map_w, map_h = 225.0, 166.0
+        footer_h = 12.0
+        map_h = ph - map_y - footer_h - 4  # dynamic fill
 
-        # --- Map (renderer already applied, just set extent) ---
-        map_item = self._map_renderer._create_map_item(layout, template.map_rect)
-        
-        # Critical: Set CRS to match project, otherwise map may be blank or distorted
+        map_item = self._map_renderer._create_map_item(
+            layout, (map_x, map_y, map_w, map_h)
+        )
+
+        # CRS & Extent
         map_item.setCrs(self._project.crs())
-        
         extent = self._map_renderer._get_feature_extent(
             layer, config.id_field, feature_id
         )
         map_item.setExtent(extent)
-        
-        # Base map
-        layers_to_show = [layer]
-        base_layer = self._add_base_map(config.base_map)
-        if base_layer:
-             # Add base layer to project temporarily (needed for rendering?)
-             # Actually QgsPrintLayout map item can render layers NOT in project if we pass them?
-             # Docs indicate layers usually need to be valid.
-             # Ideally validation is done.
-             # Order: [Base, Coverage] (Draw order? No, setLayers uses stack order where first is TOP?
-             # Order: [Base, Coverage] -> Base drawn first (bottom), Coverage drawn second (top)
-             layers_to_show = [base_layer, layer]
-        
-        map_item.setLayers(layers_to_show)
 
-        # --- North Arrow ---
-        if template.north_arrow_rect:
-            self._map_renderer.add_north_arrow(layout, template.north_arrow_rect)
+        # Layers: [base (bottom), coverage (top)]
+        layers_for_map = [layer]
+        if base_layer and base_layer.isValid():
+            layers_for_map = [base_layer, layer]
+        map_item.setLayers(layers_for_map)
 
-        # --- Scale Bar ---
-        # Place bottom-left of map, inside margin
-        scale_x = template.map_rect[0] + 5
-        scale_y = template.map_rect[1] + template.map_rect[3] - 15
-        # Call with (x, y) only
-        self._map_renderer.add_scale_bar(layout, map_item, (scale_x, scale_y))
+        # Map border
+        map_item.setFrameEnabled(True)
+        map_item.setFrameStrokeColor(QColor(palette.get("map_border", "#2C3E50")))
+        map_item.setFrameStrokeWidth(
+            QgsLayoutMeasurement(0.4, Qgis.LayoutUnit.Millimeters)
+        )
 
-        # --- Legend ---
-        # Side column
-        legend_x = template.map_rect[0] + template.map_rect[2] + 5 # Right of map
-        legend_y = template.map_rect[1]
-        
+        # ══════════════════════════════════════════════════════════════
+        # 3. LEGEND — right column with background panel
+        # ══════════════════════════════════════════════════════════════
+        legend_x = map_x + map_w + 4  # right of map
+        legend_y = map_y
+        legend_w = pw - legend_x - 4
+        legend_h = map_h
+
+        # Legend background panel
+        self._add_rect(
+            layout, (legend_x - 1, legend_y - 1, legend_w + 2, legend_h + 2),
+            palette.get("legend_bg", "#F8F9FA"), border_color="#DEE2E6",
+        )
+
         legend_title = config.variable_alias or primary_field
         self._map_renderer.add_legend(
-            layout, map_item, (legend_x, legend_y), title=legend_title,
-            layers=[layer] # Only show the thematic layer in legend
+            layout, map_item, (legend_x + 2, legend_y + 2),
+            title=legend_title, layers=[layer],
         )
-        
-        # --- Charts (REMOVED) ---
-        # No chart files to track
-        pass
 
-        # --- Export ---
+        # ══════════════════════════════════════════════════════════════
+        # 4. NORTH ARROW — inside map, top-right
+        # ══════════════════════════════════════════════════════════════
+        na_size = 10.0
+        self._map_renderer.add_north_arrow(
+            layout, (map_x + map_w - na_size - 3, map_y + 3, na_size, na_size)
+        )
+
+        # ══════════════════════════════════════════════════════════════
+        # 5. SCALE BAR — inside map, bottom-left
+        # ══════════════════════════════════════════════════════════════
+        self._map_renderer.add_scale_bar(
+            layout, map_item,
+            (map_x + 5, map_y + map_h - 12),
+        )
+
+        # ══════════════════════════════════════════════════════════════
+        # 6. FOOTER BAND — credit line
+        # ══════════════════════════════════════════════════════════════
+        footer_y = ph - footer_h
+        self._add_rect(layout, (0, footer_y, pw, footer_h), palette.get("footer_bg", "#1B2838"))
+
+        from datetime import datetime
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        footer_text = f"AutoAtlas Pro  •  {date_str}  •  {subtitle}"
+        self._add_label(
+            layout, footer_text,
+            rect_mm=(8, footer_y + 1, pw - 16, footer_h - 2),
+            font_size=7, bold=False,
+            halign=Qt.AlignCenter, valign=Qt.AlignVCenter,
+            color=palette.get("footer_color", "#8899AA"),
+        )
+
+        # ══════════════════════════════════════════════════════════════
+        # 7. EXPORT
+        # ══════════════════════════════════════════════════════════════
         output_path = self._export(layout, config, safe_name)
 
-        # --- Cleanup ---
-        # Delete layout items to free memory (don't call removeLayout,
-        # since we never added it to the layout manager)
         layout.clear()
         del layout
-
-        # Remove temp chart image files
-        for tmp in temp_files:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
 
         return output_path
 
     # ------------------------------------------------------------------
-    # Helpers
+    # Renderer helper
     # ------------------------------------------------------------------
 
-    def _resolve_layer(self, layer_id: str) -> QgsVectorLayer:
-        """Resolve a QGIS layer by its ID."""
-        layer = self._project.mapLayer(layer_id)
-        if not layer or not isinstance(layer, QgsVectorLayer):
-            raise ValueError(f"Layer '{layer_id}' not found or not a vector layer.")
-        return layer
+    def _apply_renderer(
+        self, layer: QgsVectorLayer, config: ReportConfig, primary_field: str,
+    ) -> None:
+        """Apply the correct renderer to the layer."""
+        if config.map_style == MapStyle.CHOROPLETH:
+            self._map_renderer._apply_graduated_renderer(
+                layer, primary_field, config.color_ramp_name, num_classes=5
+            )
+        elif config.map_style == MapStyle.CATEGORICAL:
+            self._map_renderer._apply_categorical_renderer(layer, primary_field)
+
+    # ------------------------------------------------------------------
+    # Base Map — XYZ layer factory
+    # ------------------------------------------------------------------
 
     @staticmethod
-    def _add_chart_image(
-        layout: QgsPrintLayout,
-        png_bytes: bytes,
-        rect_mm: Tuple[float, float, float, float],
-    ) -> str:
-        """Write PNG bytes to a temp file and add as picture item.
+    def _create_base_map_layer(bm_type: BaseMapType) -> Optional[QgsRasterLayer]:
+        """Create a QgsRasterLayer from an XYZ tile provider.
 
-        Returns:
-            Path to the temp file (caller is responsible for cleanup).
+        The tile URL is percent-encoded so that ``&`` inside the URL
+        is not confused with the ``type=xyz&url=...&zmax=...`` separator.
         """
-        fd, tmp_path = tempfile.mkstemp(suffix=".png")
-        try:
-            os.write(fd, png_bytes)
-        finally:
-            os.close(fd)
-
-        pic = QgsLayoutItemPicture(layout)
-        pic.setPicturePath(tmp_path)
-        pic.attemptMove(QgsLayoutPoint(rect_mm[0], rect_mm[1]))
-        pic.attemptResize(QgsLayoutSize(rect_mm[2], rect_mm[3]))
-        pic.setResizeMode(QgsLayoutItemPicture.ZoomResizeFrame)
-
-        return tmp_path
-
-    def _add_base_map(self, bm_type: BaseMapType) -> Optional[QgsRasterLayer]:
-        """Create a temporary XYZ raster layer for the base map."""
-        if bm_type == BaseMapType.NONE:
+        if bm_type is None or bm_type == BaseMapType.NONE:
             return None
 
-        url = ""
-        name = bm_type.value
-        zmin = "0"
-        zmax = "20"
-
-        if bm_type == BaseMapType.OSM:
-             url = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-             zmax = "19"
-        elif bm_type == BaseMapType.POSITRON:
-             url = "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png"
-        elif bm_type == BaseMapType.DARK_MATTER:
-             url = "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png"
-        elif bm_type == BaseMapType.GOOGLE_MAPS:
-             url = "https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
-             zmax = "19"
-        elif bm_type == BaseMapType.GOOGLE_SATELLITE:
-             url = "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}"
-        elif bm_type == BaseMapType.GOOGLE_HYBRID:
-             url = "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"
-        elif bm_type == BaseMapType.ESRI_SATELLITE:
-             url = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-             zmax = "17"
-        elif bm_type == BaseMapType.ESRI_STREET:
-             url = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}"
-             zmax = "17"
-        elif bm_type == BaseMapType.ESRI_TOPOGRAPHY:
-             url = "http://services.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}"
-             zmax = "20"
-        elif bm_type == BaseMapType.BING_SATELLITE:
-             url = "http://ecn.t3.tiles.virtualearth.net/tiles/a{q}.jpeg?g=1"
-             zmax = "19"
-
-        uri = f"type=xyz&url={url}&zmax={zmax}&zmin={zmin}"
-        layer = QgsRasterLayer(uri, name, "wms")
-        if not layer.isValid():
+        entry = _BASE_MAP_URLS.get(bm_type)
+        if not entry:
             return None
-        return layer
+
+        raw_url, zmax, zmin = entry
+
+        # CRITICAL: encode the tile URL so & inside it doesn't break the URI
+        encoded_url = quote(raw_url, safe="")
+        uri = f"type=xyz&url={encoded_url}&zmax={zmax}&zmin={zmin}"
+
+        layer = QgsRasterLayer(uri, bm_type.value, "wms")
+        return layer if layer.isValid() else None
+
+    # ------------------------------------------------------------------
+    # Layout primitives
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _add_rect(
+        layout: QgsPrintLayout,
+        rect_mm: Tuple[float, float, float, float],
+        fill_color: str,
+        border_color: Optional[str] = None,
+    ) -> QgsLayoutItemShape:
+        """Add a filled rectangle (background band)."""
+        shape = QgsLayoutItemShape(layout)
+        shape.setShapeType(QgsLayoutItemShape.Rectangle)
+        shape.attemptMove(QgsLayoutPoint(rect_mm[0], rect_mm[1]))
+        shape.attemptResize(QgsLayoutSize(rect_mm[2], rect_mm[3]))
+
+        symbol = shape.symbol()
+        symbol.setColor(QColor(fill_color))
+        if border_color:
+            symbol.symbolLayer(0).setStrokeColor(QColor(border_color))
+            symbol.symbolLayer(0).setStrokeWidth(0.3)
+        else:
+            symbol.symbolLayer(0).setStrokeColor(QColor(fill_color))
+            symbol.symbolLayer(0).setStrokeWidth(0)
+        shape.setSymbol(symbol)
+
+        layout.addLayoutItem(shape)
+        return shape
 
     @staticmethod
     def _add_label(
@@ -432,8 +465,8 @@ class ReportComposer:
         halign: int = Qt.AlignLeft,
         valign: int = Qt.AlignVCenter,
         color: str = "#000000",
-    ) -> None:
-        """Add a text label to the layout."""
+    ) -> QgsLayoutItemLabel:
+        """Add a styled text label to the layout."""
         label = QgsLayoutItemLabel(layout)
         label.setText(text)
         label.attemptMove(QgsLayoutPoint(rect_mm[0], rect_mm[1]))
@@ -446,7 +479,16 @@ class ReportComposer:
         label.setVAlign(valign)
         label.setFontColor(QColor(color))
 
+        # Transparent background for labels
+        label.setBackgroundEnabled(False)
+        label.setFrameEnabled(False)
+
         layout.addLayoutItem(label)
+        return label
+
+    # ------------------------------------------------------------------
+    # Export
+    # ------------------------------------------------------------------
 
     def _export(
         self,
@@ -474,6 +516,17 @@ class ReportComposer:
             )
 
         return out_path
+
+    # ------------------------------------------------------------------
+    # Utilities
+    # ------------------------------------------------------------------
+
+    def _resolve_layer(self, layer_id: str) -> QgsVectorLayer:
+        """Resolve a QGIS layer by its ID."""
+        layer = self._project.mapLayer(layer_id)
+        if not layer or not isinstance(layer, QgsVectorLayer):
+            raise ValueError(f"Layer '{layer_id}' not found or not a vector layer.")
+        return layer
 
     @staticmethod
     def _sanitize_filename(name: str) -> str:
