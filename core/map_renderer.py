@@ -384,6 +384,16 @@ class MapRenderer:
         layout.addLayoutItem(map_item)
         return map_item
 
+    @staticmethod
+    def _build_filter_expression(feature_id: object, id_field: str) -> str:
+        """Build a QGIS expression to select a specific feature by ID."""
+        if isinstance(feature_id, (int, float)):
+            return f'"{id_field}" = {feature_id}'
+        else:
+            # Escape single quotes in string values
+            safe_id = str(feature_id).replace("'", "''")
+            return f'"{id_field}" = \'{safe_id}\''
+
     def _get_feature_extent(
         self,
         layer: QgsVectorLayer,
@@ -394,13 +404,7 @@ class MapRenderer:
 
         Handles both numeric and string feature IDs correctly.
         """
-        # Build filter expression that works for both numeric and string IDs
-        if isinstance(feature_id, (int, float)):
-            expr = f'"{id_field}" = {feature_id}'
-        else:
-            # Escape single quotes in string values
-            safe_id = str(feature_id).replace("'", "''")
-            expr = f'"{id_field}" = \'{safe_id}\''
+        expr = self._build_filter_expression(feature_id, id_field)
 
         request = QgsFeatureRequest().setFilterExpression(expr)
         for feature in layer.getFeatures(request):

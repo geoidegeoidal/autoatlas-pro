@@ -717,6 +717,9 @@ class WizardDialog(QDialog):
             self._batch_index = 0
             self._batch_total = len(self._batch_ids)
             self._batch_template = config.template or None
+            
+            # Create base layer for the batch
+            self._batch_base_layer = self._composer._create_base_map_layer(config.base_map)
 
             self._progress_bar.setRange(0, self._batch_total)
             self._progress_bar.setValue(0)
@@ -754,7 +757,7 @@ class WizardDialog(QDialog):
         )
 
         try:
-            path = self._composer._generate_single_fast(
+            path = self._composer._generate_single(
                 self._batch_config,
                 self._batch_layer,
                 self._batch_template or self._composer._resolve_template(),
@@ -763,6 +766,7 @@ class WizardDialog(QDialog):
                 self._batch_primary,
                 self._batch_stats,
                 self._batch_ranking,
+                self._batch_base_layer,
             )
             self._batch_paths.append(path)
         except Exception as exc:
@@ -820,6 +824,14 @@ class WizardDialog(QDialog):
 
     def _reset_buttons(self) -> None:
         """Restore footer buttons to normal state."""
+        # Cleanup base layer
+        if getattr(self, "_batch_base_layer", None):
+            try:
+                self._composer._project.removeMapLayer(self._batch_base_layer.id())
+            except Exception:
+                pass
+            self._batch_base_layer = None
+
         self._progress_bar.setVisible(False)
         self._progress_label.setVisible(False)
         self._btn_next.setText(self.tr("🚀 Generate"))
