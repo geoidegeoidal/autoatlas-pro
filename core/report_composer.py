@@ -22,6 +22,7 @@ from qgis.core import (
     QgsProject,
     QgsVectorLayer,
     QgsLayoutItemLabel,
+    QgsRasterLayer,
 )
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import QFont, QColor
@@ -30,7 +31,7 @@ from qgis.PyQt.QtWidgets import QApplication
 from .chart_engine import ChartEngine
 from .data_engine import DataEngine
 from .map_renderer import MapRenderer
-from .models import ChartType, MapStyle, OutputFormat, ReportConfig, TemplateConfig
+from .models import ChartType, MapStyle, OutputFormat, ReportConfig, TemplateConfig, BaseMapType
 
 
 # Default template
@@ -283,7 +284,20 @@ class ReportComposer:
             layer, config.id_field, feature_id
         )
         map_item.setExtent(extent)
-        map_item.setLayers([layer])
+        
+        # Base map
+        layers_to_show = [layer]
+        base_layer = self._add_base_map(config.base_map)
+        if base_layer:
+             # Add base layer to project temporarily (needed for rendering?)
+             # Actually QgsPrintLayout map item can render layers NOT in project if we pass them?
+             # Docs indicate layers usually need to be valid.
+             # Ideally validation is done.
+             # Order: [Base, Coverage] (Draw order? No, setLayers uses stack order where first is TOP?
+             # Order: [Base, Coverage] -> Base drawn first (bottom), Coverage drawn second (top)
+             layers_to_show = [base_layer, layer]
+        
+        map_item.setLayers(layers_to_show)
 
         # --- North Arrow ---
         if template.north_arrow_rect:
@@ -303,7 +317,8 @@ class ReportComposer:
         
         legend_title = config.variable_alias or primary_field
         self._map_renderer.add_legend(
-            layout, map_item, (legend_x, legend_y), title=legend_title
+            layout, map_item, (legend_x, legend_y), title=legend_title,
+            layers=[layer] # Only show the thematic layer in legend
         )
         
         # --- Charts (REMOVED) ---
@@ -362,11 +377,50 @@ class ReportComposer:
         pic.attemptResize(QgsLayoutSize(rect_mm[2], rect_mm[3]))
         pic.setResizeMode(QgsLayoutItemPicture.ZoomResizeFrame)
 
-        layout.addLayoutItem(pic)
         return tmp_path
 
-        layout.addLayoutItem(pic)
-        return tmp_path
+    def _add_base_map(self, bm_type: BaseMapType) -> Optional[QgsRasterLayer]:
+        """Create a temporary XYZ raster layer for the base map."""
+        if bm_type == BaseMapType.NONE:
+            return None
+
+        url = ""
+        name = bm_type.value
+        zmin = "0"
+        zmax = "20"
+
+        if bm_type == BaseMapType.OSM:
+             url = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+             zmax = "19"
+        elif bm_type == BaseMapType.POSITRON:
+             url = "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png"
+        elif bm_type == BaseMapType.DARK_MATTER:
+             url = "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png"
+        elif bm_type == BaseMapType.GOOGLE_MAPS:
+             url = "https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
+             zmax = "19"
+        elif bm_type == BaseMapType.GOOGLE_SATELLITE:
+             url = "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}"
+        elif bm_type == BaseMapType.GOOGLE_HYBRID:
+             url = "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"
+        elif bm_type == BaseMapType.ESRI_SATELLITE:
+             url = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+             zmax = "17"
+        elif bm_type == BaseMapType.ESRI_STREET:
+             url = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}"
+             zmax = "17"
+        elif bm_type == BaseMapType.ESRI_TOPOGRAPHY:
+             url = "http://services.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}"
+             zmax = "20"
+        elif bm_type == BaseMapType.BING_SATELLITE:
+             url = "http://ecn.t3.tiles.virtualearth.net/tiles/a{q}.jpeg?g=1"
+             zmax = "19"
+
+        uri = f"type=xyz&url={url}&zmax={zmax}&zmin={zmin}"
+        layer = QgsRasterLayer(uri, name, "wms")
+        if not layer.isValid():
+            return None
+        return layer
 
     @staticmethod
     def _add_label(

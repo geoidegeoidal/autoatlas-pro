@@ -27,7 +27,12 @@ from qgis.core import (
     QgsSymbol,
     QgsUnitTypes,
     QgsVectorLayer,
+    QgsMapLayer,
+    QgsLayerTree,
+    QgsLegendStyle,
 )
+from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtGui import QColor, QFont
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import QColor, QFont
 
@@ -205,6 +210,7 @@ class MapRenderer:
         map_item: QgsLayoutItemMap,
         pos_mm: Tuple[float, float],
         title: str = "",
+        layers: Optional[List[QgsMapLayer]] = None,
     ) -> QgsLayoutItemLegend:
         """Add a legend linked to a map item.
 
@@ -213,6 +219,7 @@ class MapRenderer:
             map_item: Map item the legend references.
             pos_mm: (x, y) position in mm.
             title: Optional title for the legend.
+            layers: specific layers to include (excludes others if set).
 
         Returns:
             The created legend item.
@@ -220,9 +227,27 @@ class MapRenderer:
         legend = QgsLayoutItemLegend(layout)
         legend.setLinkedMap(map_item)
         legend.attemptMove(QgsLayoutPoint(pos_mm[0], pos_mm[1]))
-        legend.setAutoUpdateModel(True)
+
+        if layers is not None:
+             legend.setAutoUpdateModel(False)
+             root = QgsLayerTree()
+             for layer in layers:
+                 root.addLayer(layer)
+             legend.model().setRootGroup(root)
+        else:
+             legend.setAutoUpdateModel(True)
+
         if title:
             legend.setTitle(title)
+
+        # Styling
+        legend.setStyleFont(QgsLegendStyle.Title, QFont("Arial", 12, QFont.Bold))
+        legend.setStyleFont(QgsLegendStyle.Group, QFont("Arial", 10, QFont.Bold))
+        legend.setStyleFont(QgsLegendStyle.Subgroup, QFont("Arial", 10))
+        legend.setStyleFont(QgsLegendStyle.SymbolLabel, QFont("Arial", 9))
+        
+        # Wrapping?
+        legend.setWrapString("\n")
 
         layout.addLayoutItem(legend)
         return legend

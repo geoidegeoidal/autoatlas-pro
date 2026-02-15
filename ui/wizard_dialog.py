@@ -47,7 +47,7 @@ from qgis.PyQt.QtWidgets import (
 if TYPE_CHECKING:
     from qgis.gui import QgisInterface, QgsMapLayerComboBox
 
-from ..core.models import ChartType, MapStyle, OutputFormat, ReportConfig
+from ..core.models import ChartType, MapStyle, OutputFormat, ReportConfig, BaseMapType
 
 
 class WizardDialog(QDialog):
@@ -257,12 +257,25 @@ class WizardDialog(QDialog):
         row_ramp.addWidget(QLabel(self.tr("Color Ramp:")))
         self._ramp_combo = QComboBox()
         ramp_names = QgsStyle.defaultStyle().colorRampNames()
+        ramp_names = QgsStyle.defaultStyle().colorRampNames()
         self._ramp_combo.addItems(sorted(ramp_names))
         idx = self._ramp_combo.findText("Spectral")
         if idx >= 0:
             self._ramp_combo.setCurrentIndex(idx)
         row_ramp.addWidget(self._ramp_combo, stretch=1)
         map_layout.addLayout(row_ramp)
+
+        # Base Map
+        row_base = QHBoxLayout()
+        row_base.addWidget(QLabel(self.tr("Base Map:")))
+        self._base_map_combo = QComboBox()
+        for bm in BaseMapType:
+            self._base_map_combo.addItem(bm.value, bm)
+        self._base_map_combo.setCurrentText(BaseMapType.NONE.value)
+        row_base.addWidget(self._base_map_combo, stretch=1)
+        map_layout.addLayout(row_base)
+
+        layout.addWidget(grp_map)
 
         layout.addWidget(grp_map)
 
@@ -512,6 +525,8 @@ class WizardDialog(QDialog):
             output_format=output_format,
             output_dir=Path(output_dir),
             dpi=self._dpi_spin.value(),
+            # base_map
+            base_map=self._base_map_combo.currentData(),
             variable_alias=self._alias_edit.text().strip()
         )
 
@@ -744,6 +759,8 @@ class WizardDialog(QDialog):
                 output_format=OutputFormat.PNG,
                 output_dir=Path(tempfile.gettempdir()),
                 dpi=96,
+                dpi=96,
+                base_map=self._base_map_combo.currentData(),
                 variable_alias=self._alias_edit.text().strip()
             )
 

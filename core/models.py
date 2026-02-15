@@ -25,6 +25,22 @@ class MapStyle(Enum):
     BIVARIATE = auto()
 
 
+class BaseMapType(str, Enum):
+    """Available base map providers."""
+
+    NONE = "None"
+    OSM = "OpenStreetMap"
+    POSITRON = "CartoDB Positron"
+    DARK_MATTER = "CartoDB Dark Matter"
+    GOOGLE_MAPS = "Google Maps"
+    GOOGLE_SATELLITE = "Google Satellite"
+    GOOGLE_HYBRID = "Google Hybrid"
+    ESRI_SATELLITE = "Esri Satellite"
+    ESRI_STREET = "Esri Street Map"
+    ESRI_TOPOGRAPHY = "Esri Topography"
+    BING_SATELLITE = "Bing Satellite"
+
+
 class ChartType(Enum):
     """Available chart types for reports."""
 
@@ -205,7 +221,9 @@ class ReportConfig:
     output_dir: Path = Path(".")
     dpi: int = 300
     feature_ids: Optional[List[Any]] = None
+    feature_ids: Optional[List[Any]] = None
     variable_alias: str = ""
+    base_map: BaseMapType = BaseMapType.NONE
 
     def __post_init__(self) -> None:
         """Validate configuration values."""
