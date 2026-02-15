@@ -20,6 +20,7 @@ from qgis.core import (
     Qgis,
     QgsCoordinateReferenceSystem,
     QgsCoordinateTransform,
+    QgsFeatureRequest,
     QgsLayoutExporter,
     QgsLayoutItemLabel,
     QgsLayoutItemMap,
@@ -130,6 +131,11 @@ class ReportComposer:
         self._map_renderer = MapRenderer(self._project)
         self._chart_engine = ChartEngine(use_plotly=False, dark_theme=False)
 
+    def _resolve_template(self, name: str = "default") -> TemplateConfig:
+        """Resolve a template configuration by name."""
+        # TODO: Load from JSON or registry. For now, return default.
+        return _DEFAULT_TEMPLATE
+
     # ------------------------------------------------------------------
     # Batch generation
     # ------------------------------------------------------------------
@@ -218,9 +224,11 @@ class ReportComposer:
         )
 
         base_layer = self._create_base_map_layer(preview_config.base_map)
+        
+        template = preview_config.template or _DEFAULT_TEMPLATE
 
         result = self._generate_single(
-            preview_config, layer, preview_config.template,
+            preview_config, layer, template,
             target_fid, f"preview_{name}",
             primary_field, stats, ranking, base_layer,
         )

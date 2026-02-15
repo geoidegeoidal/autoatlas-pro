@@ -310,7 +310,7 @@ class MapRenderer:
             QgsTextFormat,
             QgsVectorLayerSimpleLabeling,
         )
-        from PyQt5.QtGui import QFont, QColor
+        from qgis.PyQt.QtGui import QFont, QColor
 
         settings = QgsPalLayerSettings()
         settings.fieldName = field_name

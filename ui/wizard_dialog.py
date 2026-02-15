@@ -9,6 +9,7 @@ Three-step workflow:
 from __future__ import annotations
 
 from pathlib import Path
+import tempfile
 from typing import TYPE_CHECKING, List, Optional
 
 from qgis.core import (
@@ -24,7 +25,7 @@ from qgis.gui import (
     QgsMapLayerComboBox,
 )
 from qgis.PyQt.QtCore import QCoreApplication, QSize, Qt
-from qgis.PyQt.QtGui import QFont, QIcon
+from qgis.PyQt.QtGui import QColor, QFont, QIcon, QPixmap
 from qgis.PyQt.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -247,25 +248,24 @@ class WizardDialog(QDialog):
     def _build_step_style(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(16)
-
-        layout.addWidget(QLabel(
+        
+        # Use a scroll area because we have many options now
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        content = QWidget()
+        scroll_layout = QVBoxLayout(content)
+        scroll_layout.setContentsMargins(24, 24, 24, 24)
+        scroll_layout.setSpacing(16)
+        
+        scroll_layout.addWidget(QLabel(
             f"<h3>{self.tr('Configure Style')}</h3>"
             f"<p>{self.tr('Choose how your maps and charts will look.')}</p>"
         ))
 
-        # Map style
-        grp_map = QGroupBox(self.tr("Map Style"))
+        # 1. Map Styling (Group)
+        grp_map = QGroupBox(self.tr("Map Styling"))
         map_layout = QVBoxLayout(grp_map)
-        self._radio_choropleth = QRadioButton(self.tr("Choropleth (graduated colors)"))
-        self._radio_choropleth.setChecked(True)
-        self._radio_categorical = QRadioButton(self.tr("Categorical (unique values)"))
-        map_layout.addWidget(self._radio_choropleth)
-        map_layout.addWidget(self._radio_categorical)
-
-        # Color ramp
-        row_ramp = QHBoxLayout()
         
         # Row 1: Style & Ramp
         row1 = QHBoxLayout()
@@ -276,8 +276,6 @@ class WizardDialog(QDialog):
         row1.addWidget(self._style_combo)
         
         row1.addWidget(QLabel(self.tr("Ramp:")))
-        self._ramp_btn = QPushButton(self.tr("Select Ramp...")) # Placeholder for ColorRampButton if desired, using simple combo for now? 
-        # Actually I was using QgsColorRampButton logic via a widget wrapper, but here I'll use QComboBox for standard ramps
         self._ramp_combo = QComboBox()
         self._ramp_combo.addItems(["Spectral", "Viridis", "Plasma", "Blues", "Reds", "Greens", "Magma", "Inferno"])
         row1.addWidget(self._ramp_combo)
@@ -368,24 +366,13 @@ class WizardDialog(QDialog):
         lay_layout.addLayout(row_colors)
 
         scroll_layout.addWidget(grp_layout)
-
-        # 4. Charts & Template
-        grp_charts = QGroupBox(self.tr("Charts & Template"))
+        
+        # 4. Template (renamed from Charts & Template)
+        grp_charts = QGroupBox(self.tr("Template"))
         chart_layout = QVBoxLayout(grp_charts)
         
-        # Charts
-        chart_layout.addWidget(QLabel(self.tr("Charts to Include:")))
-        self._chart_checks = {}
-        row_charts = QHBoxLayout()
-        for ct in ChartType:
-            chk = QCheckBox(ct.value)
-            chk.setChecked(True)
-            self._chart_checks[ct] = chk
-            row_charts.addWidget(chk)
-        chart_layout.addLayout(row_charts)
-
         # Template
-        chart_layout.addWidget(QLabel(self.tr("Template:")))
+        chart_layout.addWidget(QLabel(self.tr("Select Layout Template:")))
         self._template_combo = QComboBox()
         self._template_combo.addItems([
             self.tr("Default (A4 Landscape)"),
@@ -430,23 +417,23 @@ class WizardDialog(QDialog):
         self._radio_png = QRadioButton("PNG")
         fmt_layout.addWidget(self._radio_pdf)
         fmt_layout.addWidget(self._radio_png)
+        
+        # DPI
+        dpi_layout = QHBoxLayout()
+        dpi_layout.addWidget(QLabel("DPI:"))
+        self._dpi_spin = QSpinBox()
+        self._dpi_spin.setRange(72, 600)
+        self._dpi_spin.setValue(150)
+        dpi_layout.addWidget(self._dpi_spin)
+        fmt_layout.addLayout(dpi_layout)
+        
         layout.addWidget(grp_format)
 
-        # DPI
-        row_dpi = QHBoxLayout()
-        row_dpi.addWidget(QLabel(self.tr("Resolution (DPI):")))
-        self._dpi_spin = QSpinBox()
-        self._dpi_spin.setRange(72, 1200)
-        self._dpi_spin.setValue(150)
-        self._dpi_spin.setSingleStep(50)
-        row_dpi.addWidget(self._dpi_spin)
-        layout.addLayout(row_dpi)
-
-        # Output directory
+        # Directory
         grp_dir = QGroupBox(self.tr("Output Directory"))
         dir_layout = QHBoxLayout(grp_dir)
         self._dir_edit = QLineEdit()
-        self._dir_edit.setPlaceholderText(self.tr("Select output folder..."))
+        self._dir_edit.setText(str(Path.home() / "AutoAtlas_Output"))
         dir_layout.addWidget(self._dir_edit, stretch=1)
         browse_btn = QPushButton(self.tr("Browse..."))
         browse_btn.clicked.connect(self._browse_output_dir)
@@ -631,19 +618,16 @@ class WizardDialog(QDialog):
         footer_color = self._col_footer.color().name()
         variable_alias = self._alias_edit.text().strip()
 
-        # Charts
+        # Charts (removed in Phase 9)
         chart_types = []
-        for ct, chk in self._chart_checks.items():
-            if chk.isChecked():
-                chart_types.append(ct)
         
         output_format = OutputFormat.PDF if self._radio_pdf.isChecked() else OutputFormat.PNG
         output_dir = Path(self._dir_edit.text().strip())
 
         return ReportConfig(
             layer_id=layer.id(),
-            id_field=self._id_field_combo.currentField(),
-            name_field=self._name_field_combo.currentField(),
+            id_field=self._id_field_combo.currentText(),
+            name_field=self._name_field_combo.currentText(),
             indicator_fields=indicator_fields,
             map_style=map_style,
             color_ramp_name=ramp_name,
@@ -871,30 +855,33 @@ class WizardDialog(QDialog):
                 QMessageBox.warning(self, self.tr("Warning"), self.tr("Please select at least one indicator."))
                 return
 
-            map_style = MapStyle.CHOROPLETH
-            if self._radio_categorical.isChecked():
-                map_style = MapStyle.CATEGORICAL
+            map_style = self._style_combo.currentData()
+            if not map_style: # Fallback
+                map_style = MapStyle.CHOROPLETH
+                if self._radio_categorical.isChecked() if hasattr(self, '_radio_categorical') else False:
+                    map_style = MapStyle.CATEGORICAL
 
             ramp = self._ramp_combo.currentText()
 
             chart_types: List[ChartType] = []
-            # Charts removed
-
-            # Create config
-            config = ReportConfig(
-                layer_id=layer.id(),
-                id_field=id_field,
-                name_field=name_field,
-                indicator_fields=indicators,
-                map_style=map_style,
-                color_ramp_name=ramp,
-                chart_types=chart_types,
-                template=None, # Will resolve default in composer
+            # Charts removed (or logic moved to _build_config)
+            # We should reuse _build_config() or logic here
+            # using _build_config() is safer but it returns ReportConfig
+            # So I will replicate logic or call it if possible.
+            # But _build_config accesses all widgets, which is fine since we are in Step 2.
+            
+            # Update: I will use _build_config() logic but with checks?
+            # actually _build_config reads from UI directly.
+            
+            config = self._build_config()
+            
+            # Override for preview (temp dir)
+            from dataclasses import replace
+            config = replace(
+                config, 
                 output_format=OutputFormat.PNG,
                 output_dir=Path(tempfile.gettempdir()),
-                dpi=96,
-                base_map=self._base_map_combo.currentData(),
-                variable_alias=self._alias_edit.text().strip()
+                dpi=96
             )
 
             # 2. Generate
@@ -915,10 +902,11 @@ class WizardDialog(QDialog):
             dlg.exec_()
 
         except Exception as exc:
+            import traceback
+            traceback.print_exc()
             QMessageBox.critical(self, self.tr("Preview Error"), str(exc))
 
-import tempfile
-from qgis.PyQt.QtGui import QPixmap
+
 
 class PreviewDialog(QDialog):
     """Dialog to display a generated report preview image."""
