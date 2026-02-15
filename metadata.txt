@@ -15,7 +15,7 @@ homepage=https://github.com/autoatlas/autoatlas-pro
 hasProcessingProvider=no
 tags=atlas,report,cartography,census,dashboard,charts,statistics,batch,pdf
 category=Cartography
-icon=icon.png
+icon=icon.svg
 
 experimental=True
 deprecated=False
