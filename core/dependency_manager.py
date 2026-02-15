@@ -276,6 +276,8 @@ class DependencyManager:
             "install",
             "--user",
             "--quiet",
+            "--trusted-host", "pypi.org",
+            "--trusted-host", "files.pythonhosted.org",
             pkg_spec,
         ]
 
