@@ -25,6 +25,7 @@ class DependencyInfo:
         package_name: pip install name.
         import_name: Python import name (may differ from package_name).
         min_version: Minimum acceptable version string.
+        max_version: Maximum acceptable version string (pin ceiling).
         description_en: English description of what the package provides.
         description_es: Spanish description.
     """
@@ -32,8 +33,9 @@ class DependencyInfo:
     package_name: str
     import_name: str
     min_version: Optional[str]
-    description_en: str
-    description_es: str
+    max_version: Optional[str] = None
+    description_en: str = ""
+    description_es: str = ""
 
 
 # Registry of optional dependencies
@@ -55,7 +57,8 @@ OPTIONAL_DEPENDENCIES: List[DependencyInfo] = [
     DependencyInfo(
         package_name="kaleido",
         import_name="kaleido",
-        min_version="0.2.0",
+        min_version="0.2.1",
+        max_version="0.2.1",
         description_en="Static image export for Plotly charts (required for PDF reports)",
         description_es="Exportación de imágenes estáticas para gráficos Plotly (requerido para reportes PDF)",
     ),
@@ -267,7 +270,12 @@ class DependencyManager:
         """
         python_path = DependencyManager._find_python()
         pkg_spec = dep.package_name
-        if dep.min_version:
+        if dep.max_version and dep.min_version == dep.max_version:
+            # Pin to exact version
+            pkg_spec = f"{dep.package_name}=={dep.max_version}"
+        elif dep.min_version and dep.max_version:
+            pkg_spec = f"{dep.package_name}>={dep.min_version},<={dep.max_version}"
+        elif dep.min_version:
             pkg_spec = f"{dep.package_name}>={dep.min_version}"
         return [
             python_path,

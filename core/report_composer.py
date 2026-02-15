@@ -1,25 +1,28 @@
 """Report composer for AutoAtlas Pro.
 
 Orchestrates the full pipeline: data engine → map renderer → chart engine → PDF/PNG.
-Runs as a QgsTask for non-blocking batch generation.
+Designed for stability: caches shared data, reuses renderers, cleans temp files,
+and yields control to the event loop between reports to keep QGIS responsive.
 """
 
 from __future__ import annotations
 
+import gc
+import os
 import tempfile
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from qgis.core import (
     QgsLayoutExporter,
     QgsLayoutItemPicture,
     QgsLayoutPoint,
     QgsLayoutSize,
-    QgsPageSizeRegistry,
     QgsPrintLayout,
     QgsProject,
     QgsVectorLayer,
 )
+from qgis.PyQt.QtWidgets import QApplication
 
 from .chart_engine import ChartEngine
 from .data_engine import DataEngine
@@ -27,7 +30,7 @@ from .map_renderer import MapRenderer
 from .models import ChartType, MapStyle, OutputFormat, ReportConfig, TemplateConfig
 
 
-# Default template used when none is specified
+# Default template
 _DEFAULT_TEMPLATE = TemplateConfig(
     name="default",
     display_name="Default",
@@ -37,7 +40,7 @@ _DEFAULT_TEMPLATE = TemplateConfig(
     chart_slots=[
         ("DISTRIBUTION", 160.0, 30.0, 125.0, 70.0),
         ("RANKING", 160.0, 105.0, 125.0, 90.0),
-        ("WAFFLE", 10.0, 195.0, 70.0, 70.0),      # Overflow onto y, will clip gracefully
+        ("WAFFLE", 10.0, 195.0, 70.0, 70.0),
         ("SUMMARY_TABLE", 90.0, 195.0, 100.0, 60.0),
     ],
     title_rect=(10.0, 5.0, 277.0, 22.0),
@@ -50,9 +53,12 @@ _DEFAULT_TEMPLATE = TemplateConfig(
 class ReportComposer:
     """Orchestrates report generation for all territorial units.
 
-    Usage:
-        composer = ReportComposer()
-        paths = composer.generate_batch(config, progress_callback=print)
+    Key stability features:
+    - Applies renderer ONCE before the batch loop (not per feature)
+    - Pre-computes stats and ranking ONCE (shared across all reports)
+    - Cleans up temp chart image files after each export
+    - Calls QApplication.processEvents() between reports
+    - Never adds layouts to the project manager (avoids UI interference)
     """
 
     def __init__(self, project: Optional[QgsProject] = None) -> None:
@@ -90,48 +96,85 @@ class ReportComposer:
 
         config.output_dir.mkdir(parents=True, exist_ok=True)
 
+        primary_field = config.indicator_fields[0]
+
+        # ── Pre-compute shared data ONCE ──
+        # Apply renderer once (not per feature — this was causing crashes)
+        if config.map_style == MapStyle.CHOROPLETH:
+            self._map_renderer._apply_graduated_renderer(
+                layer, primary_field, config.color_ramp_name, num_classes=5
+            )
+        elif config.map_style == MapStyle.CATEGORICAL:
+            self._map_renderer._apply_categorical_renderer(
+                layer, primary_field
+            )
+
+        stats = self._data_engine.compute_stats(primary_field)
+        ranking = self._data_engine.compute_ranking(primary_field, ascending=False)
+
+        # Pre-render charts that are the SAME for all features (ranking stays the same)
+        shared_charts: Dict[str, bytes] = {}
+        if ChartType.RANKING in config.chart_types:
+            # Ranking chart without highlight — we'll render per-feature below
+            pass  # ranking varies per feature (highlight changes)
+
+        if ChartType.DISTRIBUTION in config.chart_types:
+            # Base distribution without highlight — also varies per feature
+            pass
+
+        template = config.template or _DEFAULT_TEMPLATE
+
         for i, fid in enumerate(feature_ids):
             name = self._data_engine._names_cache.get(fid, str(fid))
+
             if progress_callback:
                 progress_callback(i + 1, total, name)
 
-            path = self.generate_single(config, layer, fid)
-            output_paths.append(path)
+            # Yield to event loop to keep QGIS alive
+            QApplication.processEvents()
+
+            try:
+                path = self._generate_single_fast(
+                    config, layer, template, fid, name,
+                    primary_field, stats, ranking,
+                )
+                output_paths.append(path)
+            except Exception as exc:
+                # Log but don't crash the entire batch
+                import traceback
+                traceback.print_exc()
+                continue
+
+            # Periodic GC to prevent memory buildup
+            if i > 0 and i % 10 == 0:
+                gc.collect()
 
         return output_paths
 
     # ------------------------------------------------------------------
-    # Single report generation
+    # Single report (optimized — no renderer re-application)
     # ------------------------------------------------------------------
 
-    def generate_single(
+    def _generate_single_fast(
         self,
         config: ReportConfig,
-        layer: Optional[QgsVectorLayer] = None,
-        feature_id: Any = None,
+        layer: QgsVectorLayer,
+        template: TemplateConfig,
+        feature_id: Any,
+        name: str,
+        primary_field: str,
+        stats: Any,
+        ranking: Any,
     ) -> Path:
-        """Generate a single report page for one territorial unit.
+        """Generate a single report. Renderer already applied to layer."""
 
-        Args:
-            config: Full report configuration.
-            layer: Resolved vector layer (or None to auto-resolve).
-            feature_id: Feature ID to generate report for.
-
-        Returns:
-            Path to the generated output file.
-        """
-        if layer is None:
-            layer = self._resolve_layer(config.layer_id)
-
-        template = config.template or _DEFAULT_TEMPLATE
-        name = self._data_engine._names_cache.get(feature_id, str(feature_id))
         safe_name = self._sanitize_filename(name)
+        temp_files: List[str] = []
 
-        # Create print layout
+        # Create layout (NOT added to project manager — avoids UI interference)
         layout = QgsPrintLayout(self._project)
         layout.initializeDefaults()
 
-        # Set page size
         page = layout.pageCollection().page(0)
         page.setPageSize(
             QgsLayoutSize(template.page_width_mm, template.page_height_mm)
@@ -142,45 +185,28 @@ class ReportComposer:
             layout, name, template.title_rect, font_size=18, bold=True
         )
 
-        # --- Subtitle (first indicator) ---
+        # --- Subtitle ---
         if template.subtitle_rect and config.indicator_fields:
             self._map_renderer.add_title(
-                layout,
-                config.indicator_fields[0],
-                template.subtitle_rect,
-                font_size=11,
-                bold=False,
+                layout, primary_field, template.subtitle_rect,
+                font_size=11, bold=False,
             )
 
-        # --- Map ---
-        primary_field = config.indicator_fields[0]
-
-        if config.map_style == MapStyle.CHOROPLETH:
-            map_item = self._map_renderer.render_choropleth(
-                layout, layer, primary_field, config.color_ramp_name,
-                template.map_rect, feature_id, config.id_field,
-            )
-        elif config.map_style == MapStyle.CATEGORICAL:
-            map_item = self._map_renderer.render_categorical(
-                layout, layer, primary_field,
-                template.map_rect, feature_id, config.id_field,
-            )
-        else:
-            map_item = self._map_renderer.render_choropleth(
-                layout, layer, primary_field, config.color_ramp_name,
-                template.map_rect, feature_id, config.id_field,
-            )
+        # --- Map (renderer already applied, just set extent) ---
+        map_item = self._map_renderer._create_map_item(layout, template.map_rect)
+        extent = self._map_renderer._get_feature_extent(
+            layer, config.id_field, feature_id
+        )
+        map_item.setExtent(extent)
+        map_item.setLayers([layer])
 
         # --- Legend ---
         legend_x = template.map_rect[0]
         legend_y = template.map_rect[1] + template.map_rect[3] + 2
         self._map_renderer.add_legend(layout, map_item, (legend_x, legend_y))
 
-        # --- Charts ---
-        stats = self._data_engine.compute_stats(primary_field)
-        ranking = self._data_engine.compute_ranking(primary_field, ascending=False)
+        # --- Charts (only feature-specific parts) ---
         context = self._data_engine.get_feature_context(feature_id, primary_field)
-
         chart_map: Dict[str, bytes] = {}
 
         if ChartType.DISTRIBUTION in config.chart_types:
@@ -190,13 +216,13 @@ class ReportComposer:
 
         if ChartType.RANKING in config.chart_types:
             chart_map["RANKING"] = self._chart_engine.render_ranking(
-                ranking, highlight_id=feature_id, title=f"Ranking — {primary_field}"
+                ranking, highlight_id=feature_id,
+                title=f"Ranking — {primary_field}",
             )
 
         if ChartType.WAFFLE in config.chart_types:
             chart_map["WAFFLE"] = self._chart_engine.render_waffle(
-                context.value, stats.max_val,
-                label=name, title=primary_field,
+                context.value, stats.max_val, label=name, title=primary_field,
             )
 
         if ChartType.SUMMARY_TABLE in config.chart_types:
@@ -204,17 +230,29 @@ class ReportComposer:
                 context, stats, title=name,
             )
 
-        # Place charts according to template slots
+        # Place charts
         for slot_type, x, y, w, h in template.chart_slots:
             if slot_type in chart_map:
-                chart_bytes = chart_map[slot_type]
-                self._add_chart_image(layout, chart_bytes, (x, y, w, h))
+                tmp_path = self._add_chart_image(
+                    layout, chart_map[slot_type], (x, y, w, h)
+                )
+                temp_files.append(tmp_path)
 
         # --- Export ---
         output_path = self._export(layout, config, safe_name)
 
-        # Cleanup layout
-        self._project.layoutManager().removeLayout(layout)
+        # --- Cleanup ---
+        # Delete layout items to free memory (don't call removeLayout,
+        # since we never added it to the layout manager)
+        layout.clear()
+        del layout
+
+        # Remove temp chart image files
+        for tmp in temp_files:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
 
         return output_path
 
@@ -233,22 +271,27 @@ class ReportComposer:
     def _add_chart_image(
         layout: QgsPrintLayout,
         png_bytes: bytes,
-        rect_mm: tuple[float, float, float, float],
-    ) -> QgsLayoutItemPicture:
-        """Write PNG bytes to a temp file and add as picture item."""
-        tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
-        tmp.write(png_bytes)
-        tmp.flush()
-        tmp.close()
+        rect_mm: Tuple[float, float, float, float],
+    ) -> str:
+        """Write PNG bytes to a temp file and add as picture item.
+
+        Returns:
+            Path to the temp file (caller is responsible for cleanup).
+        """
+        fd, tmp_path = tempfile.mkstemp(suffix=".png")
+        try:
+            os.write(fd, png_bytes)
+        finally:
+            os.close(fd)
 
         pic = QgsLayoutItemPicture(layout)
-        pic.setPicturePath(tmp.name)
+        pic.setPicturePath(tmp_path)
         pic.attemptMove(QgsLayoutPoint(rect_mm[0], rect_mm[1]))
         pic.attemptResize(QgsLayoutSize(rect_mm[2], rect_mm[3]))
         pic.setResizeMode(QgsLayoutItemPicture.ZoomResizeFrame)
 
         layout.addLayoutItem(pic)
-        return pic
+        return tmp_path
 
     def _export(
         self,

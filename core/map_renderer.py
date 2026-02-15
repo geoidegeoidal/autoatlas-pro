@@ -115,7 +115,29 @@ class MapRenderer:
         Returns:
             The created QgsLayoutItemMap.
         """
-        # Use QGIS default categorized renderer
+        self._apply_categorical_renderer(layer, field_name)
+
+        map_item = self._create_map_item(layout, rect_mm)
+
+        if feature_id is not None and id_field:
+            extent = self._get_feature_extent(layer, id_field, feature_id)
+        else:
+            extent = layer.extent()
+
+        map_item.setExtent(extent)
+        map_item.setLayers([layer])
+
+        return map_item
+
+    @staticmethod
+    def _apply_categorical_renderer(
+        layer: QgsVectorLayer,
+        field_name: str,
+    ) -> None:
+        """Apply a categorized renderer to the layer.
+
+        Uses Spectral color ramp for unique values.
+        """
         from qgis.core import QgsCategorizedSymbolRenderer, QgsRendererCategory
 
         categories = []
@@ -136,18 +158,6 @@ class MapRenderer:
         renderer = QgsCategorizedSymbolRenderer(field_name, categories)
         layer.setRenderer(renderer)
         layer.triggerRepaint()
-
-        map_item = self._create_map_item(layout, rect_mm)
-
-        if feature_id is not None and id_field:
-            extent = self._get_feature_extent(layer, id_field, feature_id)
-        else:
-            extent = layer.extent()
-
-        map_item.setExtent(extent)
-        map_item.setLayers([layer])
-
-        return map_item
 
     # ------------------------------------------------------------------
     # Layout element helpers
