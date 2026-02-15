@@ -300,18 +300,22 @@ class ReportComposer:
             layout, (map_x, map_y, map_w, map_h)
         )
 
-        # CRS & Extent
-        map_item.setCrs(self._project.crs())
+        # Extent — calculated in LAYER CRS (no explicit setCrs needed,
+        # map item inherits project CRS and QGIS reprojects on-the-fly)
         extent = self._map_renderer._get_feature_extent(
             layer, config.id_field, feature_id
         )
         map_item.setExtent(extent)
 
-        # Layers: [base (bottom), coverage (top)]
+        # Layers: FIRST = on TOP visually, LAST = on BOTTOM
+        # Coverage (choropleth) must be on top so it's visible over the base map
         layers_for_map = [layer]
         if base_layer and base_layer.isValid():
-            layers_for_map = [base_layer, layer]
+            layers_for_map = [layer, base_layer]  # coverage on top, base on bottom
+
         map_item.setLayers(layers_for_map)
+        map_item.setKeepLayerSet(True)      # LOCK the custom layer set
+        map_item.setKeepLayerStyles(True)   # LOCK the renderer styles
 
         # Map border
         map_item.setFrameEnabled(True)

@@ -96,6 +96,8 @@ class MapRenderer:
 
         map_item.setExtent(extent)
         map_item.setLayers([layer])
+        map_item.setKeepLayerSet(True)
+        map_item.setKeepLayerStyles(True)
         return map_item
 
     @staticmethod
