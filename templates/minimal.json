@@ -1,0 +1,39 @@
+{
+    "name": "minimal",
+    "display_name": "Minimal",
+    "display_name_es": "Minimalista",
+    "description": "Map-focused single page with minimal chrome",
+    "page_width_mm": 297.0,
+    "page_height_mm": 210.0,
+    "map_rect": [
+        10.0,
+        25.0,
+        200.0,
+        175.0
+    ],
+    "chart_slots": [
+        [
+            "SUMMARY_TABLE",
+            215.0,
+            25.0,
+            72.0,
+            175.0
+        ]
+    ],
+    "title_rect": [
+        10.0,
+        5.0,
+        277.0,
+        15.0
+    ],
+    "subtitle_rect": null,
+    "footer_rect": null,
+    "color_palette": {
+        "bg": "#ffffff",
+        "primary": "#333333",
+        "accent": "#0077b6",
+        "text": "#333333",
+        "text_muted": "#999999"
+    },
+    "font_family": "Helvetica"
+}
