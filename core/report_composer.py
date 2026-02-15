@@ -21,7 +21,10 @@ from qgis.core import (
     QgsPrintLayout,
     QgsProject,
     QgsVectorLayer,
+    QgsLayoutItemLabel,
 )
+from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtGui import QFont, QColor
 from qgis.PyQt.QtWidgets import QApplication
 
 from .chart_engine import ChartEngine
@@ -361,6 +364,35 @@ class ReportComposer:
 
         layout.addLayoutItem(pic)
         return tmp_path
+
+        layout.addLayoutItem(pic)
+        return tmp_path
+
+    @staticmethod
+    def _add_label(
+        layout: QgsPrintLayout,
+        text: str,
+        rect_mm: Tuple[float, float, float, float],
+        font_size: int = 12,
+        bold: bool = False,
+        halign: int = Qt.AlignLeft,
+        valign: int = Qt.AlignVCenter,
+        color: str = "#000000",
+    ) -> None:
+        """Add a text label to the layout."""
+        label = QgsLayoutItemLabel(layout)
+        label.setText(text)
+        label.attemptMove(QgsLayoutPoint(rect_mm[0], rect_mm[1]))
+        label.attemptResize(QgsLayoutSize(rect_mm[2], rect_mm[3]))
+
+        font = QFont("Arial", font_size)
+        font.setBold(bold)
+        label.setFont(font)
+        label.setHAlign(halign)
+        label.setVAlign(valign)
+        label.setFontColor(QColor(color))
+
+        layout.addLayoutItem(label)
 
     def _export(
         self,

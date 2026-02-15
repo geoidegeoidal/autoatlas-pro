@@ -220,7 +220,13 @@ class WizardDialog(QDialog):
             # Only show numeric fields in indicator list
             if f.isNumeric():
                 item = QListWidgetItem(fname)
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                item.setCheckState(Qt.Unchecked)
                 self._indicator_list.addItem(item)
+        
+        # Check default item (first one)
+        if self._indicator_list.count() > 0:
+            self._indicator_list.item(0).setCheckState(Qt.Checked)
 
     # ------------------------------------------------------------------
     # Step 2: Style Configuration
@@ -417,9 +423,15 @@ class WizardDialog(QDialog):
         if self._current_step == 2:
              # Pre-fill alias if empty
             if not self._alias_edit.text():
-                selected = self._indicator_list.selectedItems()
-                if selected:
-                     self._alias_edit.setText(selected[0].text())
+                # Check for checked items instead of selected
+                first_checked = None
+                for i in range(self._indicator_list.count()):
+                    if self._indicator_list.item(i).checkState() == Qt.Checked:
+                        first_checked = self._indicator_list.item(i).text()
+                        break
+                
+                if first_checked:
+                     self._alias_edit.setText(first_checked)
             self._btn_next.setText(self.tr("🚀 Generate"))
 
         self._update_step_indicator()
@@ -444,7 +456,13 @@ class WizardDialog(QDialog):
             QMessageBox.warning(self, self.tr("Validation"), self.tr("Please select a coverage layer."))
             return False
 
-        selected_indicators = self._indicator_list.selectedItems()
+        return True
+
+        selected_indicators = []
+        for i in range(self._indicator_list.count()):
+            if self._indicator_list.item(i).checkState() == Qt.Checked:
+                selected_indicators.append(self._indicator_list.item(i))
+
         if not selected_indicators:
             QMessageBox.warning(self, self.tr("Validation"), self.tr("Please select at least one indicator field."))
             return False
@@ -463,9 +481,11 @@ class WizardDialog(QDialog):
         """Build a ReportConfig from the wizard's current state."""
         layer = self._layer_combo.currentLayer()
 
-        indicator_fields = [
-            item.text() for item in self._indicator_list.selectedItems()
-        ]
+        indicator_fields = []
+        for i in range(self._indicator_list.count()):
+            item = self._indicator_list.item(i)
+            if item.checkState() == Qt.Checked:
+                indicator_fields.append(item.text())
 
         map_style = (
             MapStyle.CHOROPLETH if self._radio_choropleth.isChecked()
