@@ -759,7 +759,6 @@ class WizardDialog(QDialog):
                 output_format=OutputFormat.PNG,
                 output_dir=Path(tempfile.gettempdir()),
                 dpi=96,
-                dpi=96,
                 base_map=self._base_map_combo.currentData(),
                 variable_alias=self._alias_edit.text().strip()
             )
