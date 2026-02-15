@@ -324,7 +324,7 @@ class WizardDialog(QDialog):
         row_dpi.addWidget(QLabel(self.tr("Resolution (DPI):")))
         self._dpi_spin = QSpinBox()
         self._dpi_spin.setRange(72, 1200)
-        self._dpi_spin.setValue(300)
+        self._dpi_spin.setValue(150)
         self._dpi_spin.setSingleStep(50)
         row_dpi.addWidget(self._dpi_spin)
         layout.addLayout(row_dpi)
@@ -497,57 +497,185 @@ class WizardDialog(QDialog):
         )
 
     def _generate_reports(self) -> None:
-        """Validate output step and launch generation."""
+        """Validate output step and launch async generation."""
         output_dir = self._dir_edit.text().strip()
         if not output_dir:
             self._dir_edit.setText(str(Path.home() / "AutoAtlas_Output"))
 
         config = self._build_config()
 
-        # Show progress
+        # Show progress UI
         self._progress_bar.setVisible(True)
         self._progress_label.setVisible(True)
-        self._btn_next.setEnabled(False)
+        self._btn_next.setText(self.tr("Cancel"))
+        self._btn_next.setEnabled(True)
         self._btn_back.setEnabled(False)
+
+        # Disconnect old signal and connect cancel
+        try:
+            self._btn_next.clicked.disconnect()
+        except TypeError:
+            pass
+        self._btn_next.clicked.connect(self._cancel_generation)
+
+        # Initialize batch state
+        self._cancelled = False
+        self._batch_config = config
+        self._batch_paths: list[Path] = []
+        self._batch_errors: list[str] = []
 
         try:
             from ..core.report_composer import ReportComposer
 
-            composer = ReportComposer()
-            paths = composer.generate_batch(config, self._on_progress)
+            self._composer = ReportComposer()
 
-            self._progress_bar.setVisible(False)
-            self._progress_label.setVisible(False)
-
-            QMessageBox.information(
-                self,
-                self.tr("Success"),
-                self.tr("Generated {n} reports in:\n{dir}").format(
-                    n=len(paths), dir=config.output_dir
-                ),
+            # Load data and apply renderer ONCE
+            layer = self._composer._resolve_layer(config.layer_id)
+            self._batch_layer = layer
+            self._composer._data_engine.load(
+                layer, config.id_field, config.name_field,
+                config.indicator_fields,
             )
-            self.accept()
+
+            primary = config.indicator_fields[0]
+            self._batch_primary = primary
+
+            # Apply renderer once
+            from ..core.models import MapStyle
+            if config.map_style == MapStyle.CHOROPLETH:
+                self._composer._map_renderer._apply_graduated_renderer(
+                    layer, primary, config.color_ramp_name, num_classes=5,
+                )
+            elif config.map_style == MapStyle.CATEGORICAL:
+                self._composer._map_renderer._apply_categorical_renderer(
+                    layer, primary,
+                )
+
+            # Pre-compute shared data
+            self._batch_stats = self._composer._data_engine.compute_stats(primary)
+            self._batch_ranking = self._composer._data_engine.compute_ranking(
+                primary, ascending=False,
+            )
+
+            feature_ids = (
+                config.feature_ids
+                or self._composer._data_engine.feature_ids
+            )
+            self._batch_ids = list(feature_ids)
+            self._batch_index = 0
+            self._batch_total = len(self._batch_ids)
+            self._batch_template = config.template or None
+
+            self._progress_bar.setRange(0, self._batch_total)
+            self._progress_bar.setValue(0)
+
+            config.output_dir.mkdir(parents=True, exist_ok=True)
+
+            # Start async loop — process first report after yielding to event loop
+            from qgis.PyQt.QtCore import QTimer
+            QTimer.singleShot(0, self._process_next_report)
 
         except Exception as exc:
-            self._progress_bar.setVisible(False)
-            self._progress_label.setVisible(False)
-            self._btn_next.setEnabled(True)
-            self._btn_back.setEnabled(True)
+            self._on_batch_error(str(exc))
 
-            QMessageBox.critical(
-                self,
-                self.tr("Error"),
-                self.tr("Report generation failed:\n{err}").format(err=str(exc)),
-            )
+    def _process_next_report(self) -> None:
+        """Process one report, then schedule the next via QTimer."""
+        if self._cancelled:
+            self._on_batch_cancelled()
+            return
 
-    def _on_progress(self, current: int, total: int, name: str) -> None:
-        self._progress_bar.setRange(0, total)
-        self._progress_bar.setValue(current)
+        if self._batch_index >= self._batch_total:
+            self._on_batch_complete()
+            return
+
+        fid = self._batch_ids[self._batch_index]
+        name = self._composer._data_engine._names_cache.get(fid, str(fid))
+
+        # Update progress
+        self._progress_bar.setValue(self._batch_index + 1)
         self._progress_label.setText(
             self.tr("Generating: {name} ({current}/{total})").format(
-                name=name, current=current, total=total
+                name=name,
+                current=self._batch_index + 1,
+                total=self._batch_total,
             )
         )
-        # Process events to keep UI responsive
-        from qgis.PyQt.QtWidgets import QApplication
-        QApplication.processEvents()
+
+        try:
+            path = self._composer._generate_single_fast(
+                self._batch_config,
+                self._batch_layer,
+                self._batch_template or self._composer._resolve_template(),
+                fid,
+                name,
+                self._batch_primary,
+                self._batch_stats,
+                self._batch_ranking,
+            )
+            self._batch_paths.append(path)
+        except Exception as exc:
+            self._batch_errors.append(f"{name}: {exc}")
+
+        self._batch_index += 1
+
+        # Periodic garbage collection
+        if self._batch_index % 10 == 0:
+            import gc
+            gc.collect()
+
+        # Schedule next report — yields back to Qt event loop
+        from qgis.PyQt.QtCore import QTimer
+        QTimer.singleShot(0, self._process_next_report)
+
+    def _cancel_generation(self) -> None:
+        """Set cancel flag — processing stops on next iteration."""
+        self._cancelled = True
+        self._progress_label.setText(self.tr("Cancelling..."))
+        self._btn_next.setEnabled(False)
+
+    def _on_batch_complete(self) -> None:
+        """Called when all reports have been processed."""
+        self._reset_buttons()
+        n = len(self._batch_paths)
+        msg = self.tr("Generated {n} reports in:\n{dir}").format(
+            n=n, dir=self._batch_config.output_dir,
+        )
+        if self._batch_errors:
+            msg += self.tr("\n\n{e} errors (skipped):").format(e=len(self._batch_errors))
+            msg += "\n" + "\n".join(self._batch_errors[:10])
+
+        QMessageBox.information(self, self.tr("Success"), msg)
+        self.accept()
+
+    def _on_batch_cancelled(self) -> None:
+        """Called when user cancels mid-batch."""
+        self._reset_buttons()
+        n = len(self._batch_paths)
+        QMessageBox.information(
+            self,
+            self.tr("Cancelled"),
+            self.tr("Cancelled. {n} reports were generated before stopping.").format(n=n),
+        )
+
+    def _on_batch_error(self, error: str) -> None:
+        """Called on fatal setup error."""
+        self._reset_buttons()
+        QMessageBox.critical(
+            self,
+            self.tr("Error"),
+            self.tr("Report generation failed:\n{err}").format(err=error),
+        )
+
+    def _reset_buttons(self) -> None:
+        """Restore footer buttons to normal state."""
+        self._progress_bar.setVisible(False)
+        self._progress_label.setVisible(False)
+        self._btn_next.setText(self.tr("🚀 Generate"))
+        self._btn_next.setEnabled(True)
+        self._btn_back.setEnabled(True)
+        try:
+            self._btn_next.clicked.disconnect()
+        except TypeError:
+            pass
+        self._btn_next.clicked.connect(self._go_next)
+

@@ -65,7 +65,13 @@ class ReportComposer:
         self._project = project or QgsProject.instance()
         self._data_engine = DataEngine()
         self._map_renderer = MapRenderer(self._project)
-        self._chart_engine = ChartEngine()
+        # Force matplotlib for batch — plotly+kaleido spawns a Chromium
+        # subprocess per chart, which freezes QGIS on large datasets.
+        self._chart_engine = ChartEngine(use_plotly=False)
+
+    def _resolve_template(self) -> TemplateConfig:
+        """Return the default template config."""
+        return _DEFAULT_TEMPLATE
 
     # ------------------------------------------------------------------
     # Batch generation
