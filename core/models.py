@@ -17,12 +17,12 @@ from typing import Any, Dict, List, Optional, Tuple
 # ======================================================================
 
 
-class MapStyle(Enum):
+class MapStyle(str, Enum):
     """Available map rendering styles."""
 
-    CHOROPLETH = auto()
-    CATEGORICAL = auto()
-    BIVARIATE = auto()
+    CHOROPLETH = "Choropleth"
+    CATEGORICAL = "Categorical"
+    BIVARIATE = "Bivariate"
 
 
 class BaseMapType(str, Enum):
@@ -41,13 +41,13 @@ class BaseMapType(str, Enum):
     BING_SATELLITE = "Bing Satellite"
 
 
-class ChartType(Enum):
+class ChartType(str, Enum):
     """Available chart types for reports."""
 
-    DISTRIBUTION = auto()
-    RANKING = auto()
-    WAFFLE = auto()
-    SUMMARY_TABLE = auto()
+    DISTRIBUTION = "Distribution"
+    RANKING = "Ranking"
+    WAFFLE = "Waffle"
+    SUMMARY_TABLE = "Summary Table"
 
 
 class OutputFormat(Enum):
