@@ -209,6 +209,53 @@ class DependencyManager:
         return dict(self._status_cache)
 
     @staticmethod
+    def _find_python() -> str:
+        """Locate the real python.exe inside QGIS's bundled Python.
+
+        In QGIS, ``sys.executable`` points to ``qgis-bin.exe``, NOT to
+        ``python.exe``.  Running ``qgis-bin.exe -m pip`` opens a new QGIS
+        window instead of installing packages.  We probe several known
+        locations to find the actual Python interpreter.
+
+        Returns:
+            Absolute path to python.exe.
+
+        Raises:
+            FileNotFoundError: If no Python interpreter could be located.
+        """
+        import os
+
+        # 1. Try sys.prefix (e.g. C:\PROGRA~1\QGIS3~1\apps\Python312)
+        candidates = [
+            os.path.join(sys.prefix, "python.exe"),
+            os.path.join(sys.prefix, "python3.exe"),
+        ]
+
+        # 2. Try relative to sys.executable
+        #    qgis-bin.exe is typically in apps/qgis-ltr/ or apps/qgis/
+        #    python.exe is in apps/Python3XX/
+        exe_dir = os.path.dirname(sys.executable)
+        apps_dir = os.path.dirname(exe_dir)
+        if os.path.isdir(apps_dir):
+            for entry in os.listdir(apps_dir):
+                if entry.lower().startswith("python3"):
+                    candidates.append(os.path.join(apps_dir, entry, "python.exe"))
+
+        # 3. Try PYTHONHOME environment variable
+        py_home = os.environ.get("PYTHONHOME", "")
+        if py_home:
+            candidates.append(os.path.join(py_home, "python.exe"))
+
+        for path in candidates:
+            if os.path.isfile(path):
+                return path
+
+        raise FileNotFoundError(
+            "Could not locate Python interpreter in QGIS environment. "
+            f"sys.executable={sys.executable}, sys.prefix={sys.prefix}"
+        )
+
+    @staticmethod
     def get_install_command(dep: DependencyInfo) -> List[str]:
         """Build the pip install command for a dependency.
 
@@ -218,11 +265,12 @@ class DependencyManager:
         Returns:
             Command as a list of strings suitable for subprocess.run.
         """
+        python_path = DependencyManager._find_python()
         pkg_spec = dep.package_name
         if dep.min_version:
             pkg_spec = f"{dep.package_name}>={dep.min_version}"
         return [
-            sys.executable,
+            python_path,
             "-m",
             "pip",
             "install",

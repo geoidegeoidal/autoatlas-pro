@@ -66,7 +66,7 @@ class AutoAtlasProPlugin:
 
     def initGui(self) -> None:  # noqa: N802
         """Called by QGIS when the plugin is loaded. Registers UI elements."""
-        icon_path = str(self.plugin_dir / "icon.png")
+        icon_path = str(self.plugin_dir / "icon.svg")
 
         action = QAction(
             QIcon(icon_path),
