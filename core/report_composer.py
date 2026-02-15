@@ -458,8 +458,9 @@ class ReportComposer:
 
         raw_url, zmax, zmin = entry
 
-        # Encode the tile URL so & inside it doesn't break the URI parser
-        encoded_url = quote(raw_url, safe="")
+        # Encode critical characters that conflict with QGIS key=value parsing.
+        # We preserve protocol chars (/:?=) but MUST encode '&' to '%26'.
+        encoded_url = quote(raw_url, safe="/:?=")
         uri = f"type=xyz&url={encoded_url}&zmax={zmax}&zmin={zmin}"
 
         layer = QgsRasterLayer(uri, f"_basemap_{bm_type.name}", "wms")

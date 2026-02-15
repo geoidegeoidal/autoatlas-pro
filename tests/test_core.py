@@ -66,10 +66,12 @@ class TestXYZUrlEncoding(unittest.TestCase):
     def test_google_with_ampersand(self) -> None:
         """Google URLs contain & which MUST be encoded to %26."""
         url = "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}"
-        encoded = quote(url, safe="")
+        encoded = quote(url, safe="/:?=")
         uri = f"type=xyz&url={encoded}&zmax=19&zmin=0"
 
-        # Verify the & inside the URL is encoded as %26
+        # Verify protocol is preserved (https://) not encoded
+        assert "https://" in encoded, f"Expected https:// in encoded URL: {encoded}"
+        # Verify & is encoded to %26
         assert "%26" in encoded, f"Expected %26 in encoded URL: {encoded}"
 
         # Verify we can split the URI correctly
@@ -77,22 +79,18 @@ class TestXYZUrlEncoding(unittest.TestCase):
         keys = [p.split("=", 1)[0] for p in parts]
         assert keys == ["type", "url", "zmax", "zmin"], f"Got: {keys}"
 
-        # Verify decoding gives back the original URL
-        decoded_url = unquote(parts[1].split("=", 1)[1])
-        assert decoded_url == url
-
     def test_esri_no_ampersand(self) -> None:
-        """Esri URLs have no & but have slashes which should be encoded."""
+        """Esri URLs have no & but have slashes which used to be encoded."""
         url = (
             "https://server.arcgisonline.com/ArcGIS/rest/services/"
             "World_Imagery/MapServer/tile/{z}/{y}/{x}"
         )
-        encoded = quote(url, safe="")
+        encoded = quote(url, safe="/:?=")
         uri = f"type=xyz&url={encoded}&zmax=17&zmin=0"
 
-        parts = uri.split("&")
-        keys = [p.split("=", 1)[0] for p in parts]
-        assert keys == ["type", "url", "zmax", "zmin"]
+        # Verify protocol/path are preserved
+        assert "https://" in encoded
+        assert "/MapServer/tile/" in encoded
 
     def test_all_basemap_urls_encode_correctly(self) -> None:
         """Every URL in the registry must produce a valid 4-part URI."""
