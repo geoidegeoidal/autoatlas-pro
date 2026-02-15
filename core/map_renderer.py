@@ -14,6 +14,7 @@ from qgis.core import (
     QgsLayoutItemLabel,
     QgsLayoutItemLegend,
     QgsLayoutItemMap,
+    QgsLayoutItemPicture,
     QgsLayoutItemScaleBar,
     QgsLayoutPoint,
     QgsLayoutSize,
@@ -203,6 +204,7 @@ class MapRenderer:
         layout: QgsPrintLayout,
         map_item: QgsLayoutItemMap,
         pos_mm: Tuple[float, float],
+        title: str = "",
     ) -> QgsLayoutItemLegend:
         """Add a legend linked to a map item.
 
@@ -210,6 +212,7 @@ class MapRenderer:
             layout: Target print layout.
             map_item: Map item the legend references.
             pos_mm: (x, y) position in mm.
+            title: Optional title for the legend.
 
         Returns:
             The created legend item.
@@ -218,6 +221,8 @@ class MapRenderer:
         legend.setLinkedMap(map_item)
         legend.attemptMove(QgsLayoutPoint(pos_mm[0], pos_mm[1]))
         legend.setAutoUpdateModel(True)
+        if title:
+            legend.setTitle(title)
 
         layout.addLayoutItem(legend)
         return legend
@@ -250,6 +255,49 @@ class MapRenderer:
 
         layout.addLayoutItem(scale_bar)
         return scale_bar
+
+    def add_north_arrow(
+        self,
+        layout: QgsPrintLayout,
+        rect_mm: Tuple[float, float, float, float],
+    ) -> QgsLayoutItemPicture:
+        """Add a north arrow to the layout.
+
+        Args:
+            layout: Target print layout.
+            rect_mm: (x, y, w, h) in mm.
+
+        Returns:
+            The created picture item.
+        """
+        from qgis.core import QgsApplication
+        import os
+
+        arrow = QgsLayoutItemPicture(layout)
+        arrow.attemptMove(QgsLayoutPoint(rect_mm[0], rect_mm[1]))
+        arrow.attemptResize(QgsLayoutSize(rect_mm[2], rect_mm[3]))
+
+        # Find default north arrow
+        svg_path = ""
+        for path in QgsApplication.svgPaths():
+            candidate = os.path.join(path, "north_arrows", "layout_default_north_arrow.svg")
+            if os.path.exists(candidate):
+                svg_path = candidate
+                break
+        
+        if not svg_path:
+             # Fallback check for common "arrows" folder if "north_arrows" fails
+             for path in QgsApplication.svgPaths():
+                candidate = os.path.join(path, "arrows", "NorthArrow_02.svg") # Common in older QGIS
+                if os.path.exists(candidate):
+                    svg_path = candidate
+                    break
+
+        if svg_path:
+            arrow.setPicturePath(svg_path)
+            
+        layout.addLayoutItem(arrow)
+        return arrow
 
     # ------------------------------------------------------------------
     # Internal helpers

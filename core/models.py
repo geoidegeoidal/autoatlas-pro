@@ -162,6 +162,7 @@ class TemplateConfig:
     title_rect: Tuple[float, float, float, float] = (10.0, 5.0, 277.0, 20.0)
     subtitle_rect: Optional[Tuple[float, float, float, float]] = None
     footer_rect: Optional[Tuple[float, float, float, float]] = None
+    north_arrow_rect: Optional[Tuple[float, float, float, float]] = None
     color_palette: Dict[str, str] = field(default_factory=dict)
     font_family: str = "Arial"
 
@@ -204,6 +205,7 @@ class ReportConfig:
     output_dir: Path = Path(".")
     dpi: int = 300
     feature_ids: Optional[List[Any]] = None
+    variable_alias: str = ""
 
     def __post_init__(self) -> None:
         """Validate configuration values."""

@@ -33,18 +33,14 @@ from .models import ChartType, MapStyle, OutputFormat, ReportConfig, TemplateCon
 # Default template
 _DEFAULT_TEMPLATE = TemplateConfig(
     name="default",
-    display_name="Default",
+    display_name="Map Only",
     page_width_mm=297.0,
     page_height_mm=210.0,
-    map_rect=(10.0, 30.0, 140.0, 165.0),
-    chart_slots=[
-        ("DISTRIBUTION", 160.0, 30.0, 125.0, 70.0),
-        ("RANKING", 160.0, 105.0, 125.0, 90.0),
-        ("WAFFLE", 10.0, 195.0, 70.0, 70.0),
-        ("SUMMARY_TABLE", 90.0, 195.0, 100.0, 60.0),
-    ],
-    title_rect=(10.0, 5.0, 277.0, 22.0),
-    subtitle_rect=(10.0, 22.0, 277.0, 10.0),
+    map_rect=(10.0, 40.0, 220.0, 160.0),
+    chart_slots=[],  # No charts
+    title_rect=(10.0, 10.0, 277.0, 15.0),
+    subtitle_rect=(10.0, 25.0, 277.0, 10.0),
+    north_arrow_rect=(216.0, 42.0, 12.0, 12.0),  # Top-right of map
     color_palette={},
     font_family="Arial",
 )
@@ -67,7 +63,8 @@ class ReportComposer:
         self._map_renderer = MapRenderer(self._project)
         # Force matplotlib for batch — plotly+kaleido spawns a Chromium
         # subprocess per chart, which freezes QGIS on large datasets.
-        self._chart_engine = ChartEngine(use_plotly=False)
+        # Use light theme by default (dark_theme=False).
+        self._chart_engine = ChartEngine(use_plotly=False, dark_theme=False)
 
     def _resolve_template(self) -> TemplateConfig:
         """Return the default template config."""
@@ -158,6 +155,71 @@ class ReportComposer:
         return output_paths
 
     # ------------------------------------------------------------------
+    # Preview generation
+    # ------------------------------------------------------------------
+
+    def generate_preview(self, config: ReportConfig) -> Path:
+        """Generate a single preview report (first feature) as PNG.
+
+        Args:
+            config: Report configuration.
+
+        Returns:
+            Path to the generated preview image.
+        """
+        layer = self._resolve_layer(config.layer_id)
+        self._data_engine.load(
+            layer, config.id_field, config.name_field, config.indicator_fields
+        )
+
+        primary_field = config.indicator_fields[0]
+
+        # Apply renderer
+        if config.map_style == MapStyle.CHOROPLETH:
+            self._map_renderer._apply_graduated_renderer(
+                layer, primary_field, config.color_ramp_name, num_classes=5
+            )
+        elif config.map_style == MapStyle.CATEGORICAL:
+            self._map_renderer._apply_categorical_renderer(layer, primary_field)
+
+        # Compute stats (needed for ranking/charts)
+        stats = self._data_engine.compute_stats(primary_field)
+        ranking = self._data_engine.compute_ranking(primary_field, ascending=False)
+
+        # Pick first feature
+        fids = self._data_engine.feature_ids
+        if not fids:
+            raise ValueError("Layer has no features.")
+        target_fid = fids[0]
+        name = self._data_engine._names_cache.get(target_fid, str(target_fid))
+
+        # Force PNG for preview
+        preview_config = ReportConfig(
+            layer_id=config.layer_id,
+            id_field=config.id_field,
+            name_field=config.name_field,
+            indicator_fields=config.indicator_fields,
+            map_style=config.map_style,
+            color_ramp_name=config.color_ramp_name,
+            chart_types=config.chart_types,
+            template=config.template or self._resolve_template(),
+            output_format=OutputFormat.PNG,
+            output_dir=Path(tempfile.gettempdir()),
+            dpi=96,  # Screen resolution is enough for preview
+        )
+
+        return self._generate_single_fast(
+            preview_config,
+            layer,
+            preview_config.template,
+            target_fid,
+            f"preview_{target_fid}",
+            primary_field,
+            stats,
+            ranking,
+        )
+
+    # ------------------------------------------------------------------
     # Single report (optimized — no renderer re-application)
     # ------------------------------------------------------------------
 
@@ -198,51 +260,52 @@ class ReportComposer:
                 font_size=11, bold=False,
             )
 
+        if template.subtitle_rect:
+            subtitle = config.variable_alias or primary_field
+            self._add_label(
+                layout,
+                subtitle,
+                template.subtitle_rect,
+                font_size=14,
+                color="#555555",
+            )
+
         # --- Map (renderer already applied, just set extent) ---
         map_item = self._map_renderer._create_map_item(layout, template.map_rect)
+        
+        # Critical: Set CRS to match project, otherwise map may be blank or distorted
+        map_item.setCrs(self._project.crs())
+        
         extent = self._map_renderer._get_feature_extent(
             layer, config.id_field, feature_id
         )
         map_item.setExtent(extent)
         map_item.setLayers([layer])
 
+        # --- North Arrow ---
+        if template.north_arrow_rect:
+            self._map_renderer.add_north_arrow(layout, template.north_arrow_rect)
+
+        # --- Scale Bar ---
+        # Place bottom-left of map, inside margin
+        scale_x = template.map_rect[0] + 5
+        scale_y = template.map_rect[1] + template.map_rect[3] - 15
+        # Call with (x, y) only
+        self._map_renderer.add_scale_bar(layout, map_item, (scale_x, scale_y))
+
         # --- Legend ---
-        legend_x = template.map_rect[0]
-        legend_y = template.map_rect[1] + template.map_rect[3] + 2
-        self._map_renderer.add_legend(layout, map_item, (legend_x, legend_y))
-
-        # --- Charts (only feature-specific parts) ---
-        context = self._data_engine.get_feature_context(feature_id, primary_field)
-        chart_map: Dict[str, bytes] = {}
-
-        if ChartType.DISTRIBUTION in config.chart_types:
-            chart_map["DISTRIBUTION"] = self._chart_engine.render_distribution(
-                stats, highlight_value=context.value, title=primary_field
-            )
-
-        if ChartType.RANKING in config.chart_types:
-            chart_map["RANKING"] = self._chart_engine.render_ranking(
-                ranking, highlight_id=feature_id,
-                title=f"Ranking — {primary_field}",
-            )
-
-        if ChartType.WAFFLE in config.chart_types:
-            chart_map["WAFFLE"] = self._chart_engine.render_waffle(
-                context.value, stats.max_val, label=name, title=primary_field,
-            )
-
-        if ChartType.SUMMARY_TABLE in config.chart_types:
-            chart_map["SUMMARY_TABLE"] = self._chart_engine.render_summary_table(
-                context, stats, title=name,
-            )
-
-        # Place charts
-        for slot_type, x, y, w, h in template.chart_slots:
-            if slot_type in chart_map:
-                tmp_path = self._add_chart_image(
-                    layout, chart_map[slot_type], (x, y, w, h)
-                )
-                temp_files.append(tmp_path)
+        # Side column
+        legend_x = template.map_rect[0] + template.map_rect[2] + 5 # Right of map
+        legend_y = template.map_rect[1]
+        
+        legend_title = config.variable_alias or primary_field
+        self._map_renderer.add_legend(
+            layout, map_item, (legend_x, legend_y), title=legend_title
+        )
+        
+        # --- Charts (REMOVED) ---
+        # No chart files to track
+        pass
 
         # --- Export ---
         output_path = self._export(layout, config, safe_name)

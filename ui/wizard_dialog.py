@@ -37,6 +37,7 @@ from qgis.PyQt.QtWidgets import (
     QRadioButton,
     QSizePolicy,
     QSpacerItem,
+    QScrollArea,
     QSpinBox,
     QStackedWidget,
     QVBoxLayout,
@@ -259,24 +260,16 @@ class WizardDialog(QDialog):
 
         layout.addWidget(grp_map)
 
-        # Charts
-        grp_charts = QGroupBox(self.tr("Charts to Include"))
-        charts_layout = QVBoxLayout(grp_charts)
+        layout.addWidget(grp_map)
 
-        self._chk_distribution = QCheckBox(self.tr("Distribution histogram"))
-        self._chk_distribution.setChecked(True)
-        self._chk_ranking = QCheckBox(self.tr("Ranking lollipop chart"))
-        self._chk_ranking.setChecked(True)
-        self._chk_waffle = QCheckBox(self.tr("Proportion donut chart"))
-        self._chk_waffle.setChecked(True)
-        self._chk_summary = QCheckBox(self.tr("Summary statistics table"))
-        self._chk_summary.setChecked(True)
-
-        charts_layout.addWidget(self._chk_distribution)
-        charts_layout.addWidget(self._chk_ranking)
-        charts_layout.addWidget(self._chk_waffle)
-        charts_layout.addWidget(self._chk_summary)
-        layout.addWidget(grp_charts)
+        # Variable Alias
+        grp_alias = QGroupBox(self.tr("Map Settings"))
+        alias_layout = QVBoxLayout(grp_alias)
+        alias_layout.addWidget(QLabel(self.tr("Variable Alias (Subtitle):")))
+        self._alias_edit = QLineEdit()
+        self._alias_edit.setPlaceholderText(self.tr("e.g. Total Population 2024"))
+        alias_layout.addWidget(self._alias_edit)
+        layout.addWidget(grp_alias)
 
         # Template
         grp_template = QGroupBox(self.tr("Report Template"))
@@ -289,7 +282,14 @@ class WizardDialog(QDialog):
             self.tr("Minimal"),
         ])
         tmpl_layout.addWidget(self._template_combo)
+        tmpl_layout.addWidget(self._template_combo)
         layout.addWidget(grp_template)
+
+        # Preview Button
+        self._btn_preview = QPushButton(self.tr("👁️ Preview Layout"))
+        self._btn_preview.setToolTip(self.tr("Generate a sample report for the first feature"))
+        self._btn_preview.clicked.connect(self._on_preview_clicked)
+        layout.addWidget(self._btn_preview)
 
         layout.addItem(QSpacerItem(0, 0, QSizePolicy.Minimum, QSizePolicy.Expanding))
         return page
@@ -415,6 +415,11 @@ class WizardDialog(QDialog):
         self._btn_back.setEnabled(True)
 
         if self._current_step == 2:
+             # Pre-fill alias if empty
+            if not self._alias_edit.text():
+                selected = self._indicator_list.selectedItems()
+                if selected:
+                     self._alias_edit.setText(selected[0].text())
             self._btn_next.setText(self.tr("🚀 Generate"))
 
         self._update_step_indicator()
@@ -468,14 +473,7 @@ class WizardDialog(QDialog):
         )
 
         chart_types: List[ChartType] = []
-        if self._chk_distribution.isChecked():
-            chart_types.append(ChartType.DISTRIBUTION)
-        if self._chk_ranking.isChecked():
-            chart_types.append(ChartType.RANKING)
-        if self._chk_waffle.isChecked():
-            chart_types.append(ChartType.WAFFLE)
-        if self._chk_summary.isChecked():
-            chart_types.append(ChartType.SUMMARY_TABLE)
+        # Charts removed as per user request (map-centric focus)
 
         output_format = OutputFormat.PDF if self._radio_pdf.isChecked() else OutputFormat.PNG
 
@@ -494,6 +492,7 @@ class WizardDialog(QDialog):
             output_format=output_format,
             output_dir=Path(output_dir),
             dpi=self._dpi_spin.value(),
+            variable_alias=self._alias_edit.text().strip()
         )
 
     def _generate_reports(self) -> None:
@@ -679,3 +678,104 @@ class WizardDialog(QDialog):
             pass
         self._btn_next.clicked.connect(self._go_next)
 
+    def _on_preview_clicked(self) -> None:
+        """Generate and show a preview of the report."""
+        try:
+            # 1. Build partial config from current UI state
+            # Validation similar to _validate_step_data but permissive
+            layer_name = self._layer_combo.currentText()
+            layer = self._layer_combo.currentLayer()
+            if not layer:
+                QMessageBox.warning(self, self.tr("Warning"), self.tr("Please select a layer."))
+                return
+
+            id_field = self._id_field_combo.currentText()
+            name_field = self._name_field_combo.currentText()
+            
+            indicators = []
+            for i in range(self._indicator_list.count()):
+                item = self._indicator_list.item(i)
+                if item.checkState() == Qt.Checked:
+                    indicators.append(item.text())
+            
+            if not indicators:
+                QMessageBox.warning(self, self.tr("Warning"), self.tr("Please select at least one indicator."))
+                return
+
+            map_style = MapStyle.CHOROPLETH
+            if self._radio_categorical.isChecked():
+                map_style = MapStyle.CATEGORICAL
+
+            ramp = self._ramp_combo.currentText()
+
+            chart_types: List[ChartType] = []
+            # Charts removed
+
+            # Create config
+            config = ReportConfig(
+                layer_id=layer.id(),
+                id_field=id_field,
+                name_field=name_field,
+                indicator_fields=indicators,
+                map_style=map_style,
+                color_ramp_name=ramp,
+                chart_types=chart_types,
+                template=None, # Will resolve default in composer
+                output_format=OutputFormat.PNG,
+                output_dir=Path(tempfile.gettempdir()),
+                dpi=96,
+                variable_alias=self._alias_edit.text().strip()
+            )
+
+            # 2. Generate
+            from qgis.PyQt.QtWidgets import QApplication
+            
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            try:
+                from ..core.report_composer import ReportComposer
+                composer = ReportComposer()
+                # Ensure layer is loaded in data engine
+                # layout generation needs data
+                preview_path = composer.generate_preview(config)
+            finally:
+                QApplication.restoreOverrideCursor()
+
+            # 3. Show Dialog
+            dlg = PreviewDialog(str(preview_path), self)
+            dlg.exec_()
+
+        except Exception as exc:
+            QMessageBox.critical(self, self.tr("Preview Error"), str(exc))
+
+import tempfile
+from qgis.PyQt.QtGui import QPixmap
+
+class PreviewDialog(QDialog):
+    """Dialog to display a generated report preview image."""
+
+    def __init__(self, image_path: str, parent: QWidget = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(self.tr("Report Layout Preview"))
+        self.resize(1000, 750)
+
+        layout = QVBoxLayout(self)
+        
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setAlignment(Qt.AlignCenter)
+        
+        self.img_label = QLabel()
+        self.img_label.setAlignment(Qt.AlignCenter)
+        
+        pixmap = QPixmap(image_path)
+        if not pixmap.isNull():
+            self.img_label.setPixmap(pixmap)
+        else:
+            self.img_label.setText(self.tr("Failed to load preview image."))
+            
+        scroll.setWidget(self.img_label)
+        layout.addWidget(scroll)
+        
+        btn_close = QPushButton(self.tr("Close"))
+        btn_close.clicked.connect(self.close)
+        layout.addWidget(btn_close, alignment=Qt.AlignRight)

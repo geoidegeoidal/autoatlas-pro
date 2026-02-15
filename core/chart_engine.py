@@ -56,18 +56,45 @@ _PALETTE = {
 }
 
 
-def _apply_dark_style(fig: plt.Figure, ax: plt.Axes) -> None:
-    """Apply consistent dark theme to a matplotlib figure."""
-    fig.patch.set_facecolor(_PALETTE["bg"])
-    ax.set_facecolor(_PALETTE["surface"])
-    ax.tick_params(colors=_PALETTE["text_muted"], labelsize=9)
+_PALETTE_LIGHT = {
+    "bg": "#ffffff",
+    "surface": "#f8f9fa",
+    "primary": "#2c3e50",
+    "accent": "#e74c3c",  # Red accent
+    "text": "#2c3e50",
+    "text_muted": "#7f8c8d",
+    "highlight": "#e74c3c",
+    "grid": "#ecf0f1",
+    "positive": "#27ae60",
+    "negative": "#c0392b",
+    "bar_default": "#3498db",  # Blue
+    "gradient_start": "#3498db",
+    "gradient_end": "#2980b9",
+}
+
+def _apply_style(fig: plt.Figure, ax: plt.Axes, dark: bool = False) -> None:
+    """Apply theme to a matplotlib figure."""
+    palette = _PALETTE if dark else _PALETTE_LIGHT
+    
+    fig.patch.set_facecolor(palette["bg"])
+    ax.set_facecolor(palette["surface"])
+    
+    # Spines
+    for spine in ax.spines.values():
+        spine.set_color(palette["grid"])
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    ax.spines["bottom"].set_color(_PALETTE["grid"])
-    ax.spines["left"].set_color(_PALETTE["grid"])
-    ax.xaxis.label.set_color(_PALETTE["text"])
-    ax.yaxis.label.set_color(_PALETTE["text"])
-    ax.title.set_color(_PALETTE["text"])
+    
+    # Ticks and labels
+    ax.tick_params(colors=palette["text_muted"], labelsize=9)
+    ax.xaxis.label.set_color(palette["text"])
+    ax.yaxis.label.set_color(palette["text"])
+    ax.title.set_color(palette["text"])
+
+
+def _apply_dark_style(fig: plt.Figure, ax: plt.Axes) -> None:
+    """Deprecated: Use _apply_style(..., dark=True)."""
+    _apply_style(fig, ax, dark=True)
 
 
 def _fig_to_bytes(fig: plt.Figure, dpi: int = 150) -> bytes:
@@ -90,9 +117,10 @@ class ChartEngine:
     Uses plotly when available for premium quality, falls back to matplotlib.
     """
 
-    def __init__(self, dpi: int = 150, use_plotly: bool = True) -> None:
+    def __init__(self, dpi: int = 150, use_plotly: bool = True, dark_theme: bool = False) -> None:
         self.dpi = dpi
         self.use_plotly = use_plotly and _HAS_PLOTLY
+        self.dark_theme = dark_theme
 
     # ------------------------------------------------------------------
     # Distribution chart
@@ -121,8 +149,9 @@ class ChartEngine:
     def _distribution_mpl(
         self, stats: FieldStats, highlight: Optional[float], title: str
     ) -> bytes:
+        palette = _PALETTE if self.dark_theme else _PALETTE_LIGHT
         fig, ax = plt.subplots(figsize=(6, 3.5))
-        _apply_dark_style(fig, ax)
+        _apply_style(fig, ax, self.dark_theme)
 
         if stats.histogram_bins and stats.histogram_counts:
             bin_edges = np.array(stats.histogram_bins)
@@ -130,13 +159,13 @@ class ChartEngine:
             widths = np.diff(bin_edges)
             centers = bin_edges[:-1] + widths / 2
 
-            colors = [_PALETTE["bar_default"]] * len(counts)
+            colors = [palette["bar_default"]] * len(counts)
 
             # Highlight the bin containing highlight_value
             if highlight is not None:
                 for i, (lo, hi) in enumerate(zip(bin_edges[:-1], bin_edges[1:])):
                     if lo <= highlight <= hi:
-                        colors[i] = _PALETTE["highlight"]
+                        colors[i] = palette["highlight"]
                         break
 
             ax.bar(centers, counts, width=widths * 0.85, color=colors, edgecolor="none")
@@ -144,7 +173,7 @@ class ChartEngine:
             if highlight is not None:
                 ax.axvline(
                     x=highlight,
-                    color=_PALETTE["accent"],
+                    color=palette["accent"],
                     linewidth=2,
                     linestyle="--",
                     alpha=0.9,
@@ -154,7 +183,7 @@ class ChartEngine:
                     xy=(highlight, max(counts) * 0.85),
                     fontsize=10,
                     fontweight="bold",
-                    color=_PALETTE["accent"],
+                    color=palette["accent"],
                     ha="center",
                 )
 
@@ -232,13 +261,14 @@ class ChartEngine:
     def _ranking_mpl(
         self, ranking: List[RankEntry], highlight_id: object, max_items: int, title: str
     ) -> bytes:
+        palette = _PALETTE if self.dark_theme else _PALETTE_LIGHT
         items = ranking[:max_items]
         items.reverse()  # bottom-to-top for horizontal
 
         names = [r.name for r in items]
         values = [r.value for r in items]
         colors = [
-            _PALETTE["highlight"] if r.feature_id == highlight_id else _PALETTE["bar_default"]
+            palette["highlight"] if r.feature_id == highlight_id else palette["bar_default"]
             for r in items
         ]
         sizes = [
@@ -247,7 +277,7 @@ class ChartEngine:
 
         fig_height = max(4, len(items) * 0.35)
         fig, ax = plt.subplots(figsize=(7, fig_height))
-        _apply_dark_style(fig, ax)
+        _apply_style(fig, ax, self.dark_theme)
 
         y_pos = range(len(items))
 
@@ -265,7 +295,7 @@ class ChartEngine:
         ax.set_yticklabels(names, fontsize=8)
         ax.set_title(title or "Ranking", fontsize=13, fontweight="bold", pad=12)
         ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:,.0f}"))
-        ax.grid(axis="x", color=_PALETTE["grid"], linewidth=0.5, alpha=0.5)
+        ax.grid(axis="x", color=palette["grid"], linewidth=0.5, alpha=0.5)
 
         fig.tight_layout()
         return _fig_to_bytes(fig, self.dpi)
@@ -339,18 +369,19 @@ class ChartEngine:
     def _waffle_mpl(
         self, value: float, total: float, label: str, title: str
     ) -> bytes:
+        palette = _PALETTE if self.dark_theme else _PALETTE_LIGHT
         pct = (value / total * 100) if total > 0 else 0
         remainder = 100 - pct
 
         fig, ax = plt.subplots(figsize=(3.5, 3.5))
-        fig.patch.set_facecolor(_PALETTE["bg"])
+        fig.patch.set_facecolor(palette["bg"])
 
         wedges, _ = ax.pie(
             [pct, remainder],
-            colors=[_PALETTE["accent"], _PALETTE["surface"]],
+            colors=[palette["accent"], palette["surface"]],
             startangle=90,
             counterclock=False,
-            wedgeprops=dict(width=0.3, edgecolor=_PALETTE["bg"], linewidth=2),
+            wedgeprops=dict(width=0.3, edgecolor=palette["bg"], linewidth=2),
         )
 
         # Center text
@@ -359,7 +390,7 @@ class ChartEngine:
             f"{pct:.1f}%",
             ha="center", va="center",
             fontsize=22, fontweight="bold",
-            color=_PALETTE["text"],
+            color=palette["text"],
         )
         if label:
             ax.text(
@@ -367,11 +398,11 @@ class ChartEngine:
                 label,
                 ha="center", va="center",
                 fontsize=9,
-                color=_PALETTE["text_muted"],
+                color=palette["text_muted"],
             )
 
         if title:
-            ax.set_title(title, fontsize=12, fontweight="bold", color=_PALETTE["text"], pad=16)
+            ax.set_title(title, fontsize=12, fontweight="bold", color=palette["text"], pad=16)
 
         fig.tight_layout()
         return _fig_to_bytes(fig, self.dpi)
@@ -401,9 +432,10 @@ class ChartEngine:
     def _summary_mpl(
         self, ctx: FeatureContext, stats: FieldStats, title: str
     ) -> bytes:
+        palette = _PALETTE if self.dark_theme else _PALETTE_LIGHT
         fig, ax = plt.subplots(figsize=(5, 3))
-        fig.patch.set_facecolor(_PALETTE["bg"])
-        ax.set_facecolor(_PALETTE["bg"])
+        fig.patch.set_facecolor(palette["bg"])
+        ax.set_facecolor(palette["bg"])
         ax.axis("off")
 
         rows = [
@@ -430,18 +462,18 @@ class ChartEngine:
 
         # Style cells
         for (row, col), cell in table.get_celld().items():
-            cell.set_edgecolor(_PALETTE["grid"])
+            cell.set_edgecolor(palette["grid"])
             if row == 0:  # header
-                cell.set_facecolor(_PALETTE["primary"])
+                cell.set_facecolor(palette["primary"])
                 cell.set_text_props(color="white", fontweight="bold")
             else:
-                cell.set_facecolor(_PALETTE["surface"])
-                cell.set_text_props(color=_PALETTE["text"])
+                cell.set_facecolor(palette["surface"])
+                cell.set_text_props(color=palette["text"])
 
         if title:
             ax.set_title(
                 title, fontsize=13, fontweight="bold",
-                color=_PALETTE["text"], pad=20,
+                color=palette["text"], pad=20,
             )
 
         fig.tight_layout()
