@@ -11,6 +11,7 @@ import gc
 import os
 import tempfile
 from datetime import datetime
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import quote
@@ -207,20 +208,13 @@ class ReportComposer:
         target_fid = fids[0]
         name = self._data_engine._names_cache.get(target_fid, str(target_fid))
 
-        preview_config = ReportConfig(
-            layer_id=config.layer_id,
-            id_field=config.id_field,
-            name_field=config.name_field,
-            indicator_fields=config.indicator_fields,
-            map_style=config.map_style,
-            color_ramp_name=config.color_ramp_name,
-            chart_types=config.chart_types,
-            template=config.template or _DEFAULT_TEMPLATE,
+        # Use replace to carry over ALL settings (opacity, highlight, etc.)
+        from dataclasses import replace
+        preview_config = replace(
+            config,
             output_format=OutputFormat.PNG,
             output_dir=Path(tempfile.gettempdir()),
             dpi=96,
-            base_map=config.base_map,
-            variable_alias=config.variable_alias,
         )
 
         base_layer = self._create_base_map_layer(preview_config.base_map)
@@ -258,6 +252,10 @@ class ReportComposer:
         safe_name = self._sanitize_filename(name)
         palette = template.color_palette or _DEFAULT_TEMPLATE.color_palette
 
+        # Apply overrides if present
+        header_color = config.header_color or palette.get("header_bg", "#1B2838")
+        footer_color = config.footer_color or palette.get("footer_bg", "#1B2838")
+
         layout = QgsPrintLayout(self._project)
         layout.initializeDefaults()
 
@@ -270,11 +268,11 @@ class ReportComposer:
         # 1. HEADER BAND
         # ══════════════════════════════════════════════════════════════
         header_h = 28.0
-        self._add_rect(layout, (0, 0, pw, header_h),
-                        palette.get("header_bg", "#1B2838"))
+        self._add_rect(layout, (0, 0, pw, header_h), header_color)
 
+        title_text = config.custom_title or name
         self._add_label(
-            layout, name,
+            layout, title_text,
             rect_mm=(0, 3, pw, 14),
             font_size=20, bold=True,
             halign=Qt.AlignCenter, valign=Qt.AlignVCenter,
@@ -302,27 +300,61 @@ class ReportComposer:
             layout, (map_x, map_y, map_w, map_h)
         )
 
-        # ── Compute extent in the PROJECT CRS ──
+        # ── Compute extent ──
         extent_layer_crs = self._map_renderer._get_feature_extent(
             layer, config.id_field, feature_id
         )
         extent = self._transform_extent(
             extent_layer_crs, layer.crs(), self._project.crs()
         )
-
-        # Use zoomToExtent (more reliable than setExtent for layout maps)
         map_item.zoomToExtent(extent)
 
-        # ── Set layers: FIRST = TOP (coverage), LAST = BOTTOM (base) ──
-        layers_for_map = [layer]
+        # ── Visual Enhancements ──
+
+        # 1. Labels
+        if config.label_field:
+            self._map_renderer.setup_labels(layer, config.label_field)
+        else:
+            layer.setLabelsEnabled(False)
+
+        # 2. Highlight Overlay (Analyzed Feature)
+        highlight_layer = None
+        if config.highlight_analyzed:
+             # Get feature geometry
+             iterator = layer.getFeatures(QgsFeatureRequest().setFilterExpression(
+                 self._map_renderer._build_filter_expression(feature_id, config.id_field)
+             ))
+             for feat in iterator:
+                 if feat.geometry():
+                     highlight_layer = self._map_renderer.create_highlight_overlay(
+                         feat.geometry(), layer.crs(), color="#FF00FF", width=0.8
+                     )
+                     if highlight_layer:
+                        self._project.addMapLayer(highlight_layer, False)
+                     break
+
+        # 3. Context Layers
+        context_layers = []
+        for lid in config.context_layer_ids:
+            lyr = self._project.mapLayer(lid)
+            if lyr and lyr.isValid():
+                context_layers.append(lyr)
+
+        # ── Set Layers: Order matters (First = Top) ──
+        # [Highlight, LabelLayer(Main), Contexts..., BaseMap]
+        layers_for_map = []
+        if highlight_layer:
+            layers_for_map.append(highlight_layer)
+        
+        layers_for_map.append(layer)
+        layers_for_map.extend(context_layers)
+        
         if base_layer and base_layer.isValid():
-            layers_for_map = [layer, base_layer]
+            layers_for_map.append(base_layer)
 
         map_item.setLayers(layers_for_map)
         map_item.setKeepLayerSet(True)
         map_item.setKeepLayerStyles(True)
-
-        # Force refresh so the map renders with our settings
         map_item.refresh()
 
         # Map border
@@ -350,13 +382,14 @@ class ReportComposer:
         )
 
         legend_title = config.variable_alias or primary_field
+        # We only want the MAIN layer in legend, not highlights or base maps
         self._map_renderer.add_legend(
             layout, map_item, (legend_x + 2, legend_y + 2),
             title=legend_title, layers=[layer],
         )
 
         # ══════════════════════════════════════════════════════════════
-        # 4. NORTH ARROW (inside map, top-right)
+        # 4. NORTH ARROW
         # ══════════════════════════════════════════════════════════════
         na_size = 10.0
         self._map_renderer.add_north_arrow(
@@ -365,7 +398,7 @@ class ReportComposer:
         )
 
         # ══════════════════════════════════════════════════════════════
-        # 5. SCALE BAR (inside map, bottom-left)
+        # 5. SCALE BAR
         # ══════════════════════════════════════════════════════════════
         self._map_renderer.add_scale_bar(
             layout, map_item,
@@ -377,13 +410,13 @@ class ReportComposer:
         # ══════════════════════════════════════════════════════════════
         footer_y = ph - footer_h
         self._add_rect(
-            layout, (0, footer_y, pw, footer_h),
-            palette.get("footer_bg", "#1B2838"),
+            layout, (0, footer_y, pw, footer_h), footer_color,
         )
         date_str = datetime.now().strftime("%Y-%m-%d")
+        footer_text = config.custom_footer or f"AutoAtlas Pro  •  {date_str}  •  {subtitle}"
         self._add_label(
             layout,
-            f"AutoAtlas Pro  •  {date_str}  •  {subtitle}",
+            footer_text,
             rect_mm=(8, footer_y + 1, pw - 16, footer_h - 2),
             font_size=7, bold=False,
             halign=Qt.AlignCenter, valign=Qt.AlignVCenter,
@@ -394,6 +427,11 @@ class ReportComposer:
         # 7. EXPORT
         # ══════════════════════════════════════════════════════════════
         output_path = self._export(layout, config, safe_name)
+        
+        # Cleanup Highlight Layer
+        if highlight_layer:
+            self._project.removeMapLayer(highlight_layer.id())
+
         layout.clear()
         del layout
         return output_path
@@ -411,11 +449,12 @@ class ReportComposer:
         """Apply the correct renderer to the layer."""
         if config.map_style == MapStyle.CHOROPLETH:
             self._map_renderer._apply_graduated_renderer(
-                layer, primary_field, config.color_ramp_name, num_classes=5
+                layer, primary_field, config.color_ramp_name, num_classes=5,
+                opacity=config.map_opacity
             )
         elif config.map_style == MapStyle.CATEGORICAL:
             self._map_renderer._apply_categorical_renderer(
-                layer, primary_field
+                layer, primary_field, opacity=config.map_opacity
             )
 
     # ------------------------------------------------------------------

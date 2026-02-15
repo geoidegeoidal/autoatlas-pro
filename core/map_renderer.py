@@ -104,10 +104,12 @@ class MapRenderer:
     def _apply_categorical_renderer(
         layer: QgsVectorLayer,
         field_name: str,
+        opacity: float = 1.0,
     ) -> None:
         """Apply a categorized renderer using Spectral color ramp."""
         from qgis.core import QgsCategorizedSymbolRenderer, QgsRendererCategory
 
+        layer.setOpacity(opacity)
         categories = []
         unique_values = sorted(set(
             f[field_name]
@@ -287,9 +289,84 @@ class MapRenderer:
         # Transparent background
         arrow.setBackgroundEnabled(False)
         arrow.setFrameEnabled(False)
-
         layout.addLayoutItem(arrow)
         return arrow
+
+    # ------------------------------------------------------------------
+    # Visual enhancements
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def setup_labels(
+        layer: QgsVectorLayer,
+        field_name: str,
+        font_size: int = 10,
+        buffer_color: str = "#FFFFFF",
+    ) -> None:
+        """Configure simple labeling for the layer."""
+        from qgis.core import (
+            QgsPalLayerSettings,
+            QgsTextBufferSettings,
+            QgsTextFormat,
+            QgsVectorLayerSimpleLabeling,
+        )
+        from PyQt5.QtGui import QFont, QColor
+
+        settings = QgsPalLayerSettings()
+        settings.fieldName = field_name
+        settings.placement = QgsPalLayerSettings.OverPoint
+
+        text_format = QgsTextFormat()
+        text_format.setFont(QFont("Arial", font_size))
+        text_format.setColor(QColor("#000000"))
+
+        buffer = QgsTextBufferSettings()
+        buffer.setEnabled(True)
+        buffer.setSize(1.0)
+        buffer.setColor(QColor(buffer_color))
+        text_format.setBuffer(buffer)
+
+        settings.setFormat(text_format)
+
+        layer.setLabeling(QgsVectorLayerSimpleLabeling(settings))
+        layer.setLabelsEnabled(True)
+
+    @staticmethod
+    def create_highlight_overlay(
+        geometry: Any,  # QgsGeometry
+        crs: Any,       # QgsCoordinateReferenceSystem
+        color: str = "#FF00FF",
+        width: float = 0.8,
+    ) -> Optional[QgsVectorLayer]:
+        """Create a transient memory layer highlighting the geometry."""
+        from qgis.core import QgsFeature, QgsField, QgsFillSymbol, QgsVectorLayer
+        from typing import Any, Optional
+
+        if not geometry or geometry.isEmpty():
+            return None
+
+        # Create memory layer
+        uri = f"Polygon?crs={crs.authid()}"
+        layer = QgsVectorLayer(uri, "Highlight", "memory")
+        if not layer.isValid():
+            return None
+
+        prov = layer.dataProvider()
+        feat = QgsFeature()
+        feat.setGeometry(geometry)
+        prov.addFeatures([feat])
+        layer.updateExtents()
+
+        # Apply symbol: Transparent fill, dashed outline
+        symbol = QgsFillSymbol.createSimple({
+            "color": "0,0,0,0",  # Fully transparent fill
+            "outline_color": color,
+            "outline_style": "dash",
+            "outline_width": str(width),
+        })
+        layer.renderer().setSymbol(symbol)
+        
+        return layer
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -342,10 +419,12 @@ class MapRenderer:
     def _apply_graduated_renderer(
         layer: QgsVectorLayer,
         field_name: str,
-        color_ramp_name: str,
-        num_classes: int,
+        ramp_name: str,
+        num_classes: int = 5,
+        opacity: float = 1.0,
     ) -> None:
-        """Apply a graduated (choropleth) renderer to the layer."""
+        """Apply a graduated renderer using standard deviation or quantiles."""
+        layer.setOpacity(opacity)
         idx = layer.fields().indexFromName(field_name)
         if idx < 0:
             return
@@ -366,7 +445,7 @@ class MapRenderer:
         max_val = max(values)
         interval = (max_val - min_val) / num_classes if num_classes > 0 else 1.0
 
-        ramp = QgsStyle.defaultStyle().colorRamp(color_ramp_name)
+        ramp = QgsStyle.defaultStyle().colorRamp(ramp_name)
         if not ramp:
             ramp = QgsStyle.defaultStyle().colorRamp("Spectral")
 

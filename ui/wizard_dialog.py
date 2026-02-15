@@ -17,6 +17,12 @@ from qgis.core import (
     QgsStyle,
     QgsVectorLayer,
 )
+from qgis.gui import (
+    QgsColorButton,
+    QgsFieldComboBox,
+    QgsOpacityWidget,
+    QgsMapLayerComboBox,
+)
 from qgis.PyQt.QtCore import QCoreApplication, QSize, Qt
 from qgis.PyQt.QtGui import QFont, QIcon
 from qgis.PyQt.QtWidgets import (
@@ -45,7 +51,13 @@ from qgis.PyQt.QtWidgets import (
 )
 
 if TYPE_CHECKING:
-    from qgis.gui import QgisInterface, QgsMapLayerComboBox
+    from qgis.gui import (
+        QgisInterface,
+        QgsColorButton,
+        QgsFieldComboBox,
+        QgsMapLayerComboBox,
+        QgsOpacityWidget,
+    )
 
 from ..core.models import ChartType, MapStyle, OutputFormat, ReportConfig, BaseMapType
 
@@ -254,40 +266,126 @@ class WizardDialog(QDialog):
 
         # Color ramp
         row_ramp = QHBoxLayout()
-        row_ramp.addWidget(QLabel(self.tr("Color Ramp:")))
+        
+        # Row 1: Style & Ramp
+        row1 = QHBoxLayout()
+        row1.addWidget(QLabel(self.tr("Style:")))
+        self._style_combo = QComboBox()
+        for s in MapStyle:
+            self._style_combo.addItem(s.value, s)
+        row1.addWidget(self._style_combo)
+        
+        row1.addWidget(QLabel(self.tr("Ramp:")))
+        self._ramp_btn = QPushButton(self.tr("Select Ramp...")) # Placeholder for ColorRampButton if desired, using simple combo for now? 
+        # Actually I was using QgsColorRampButton logic via a widget wrapper, but here I'll use QComboBox for standard ramps
         self._ramp_combo = QComboBox()
-        ramp_names = QgsStyle.defaultStyle().colorRampNames()
-        self._ramp_combo.addItems(sorted(ramp_names))
-        idx = self._ramp_combo.findText("Spectral")
-        if idx >= 0:
-            self._ramp_combo.setCurrentIndex(idx)
-        row_ramp.addWidget(self._ramp_combo, stretch=1)
-        map_layout.addLayout(row_ramp)
+        self._ramp_combo.addItems(["Spectral", "Viridis", "Plasma", "Blues", "Reds", "Greens", "Magma", "Inferno"])
+        row1.addWidget(self._ramp_combo)
+        map_layout.addLayout(row1)
 
-        # Base Map
-        row_base = QHBoxLayout()
-        row_base.addWidget(QLabel(self.tr("Base Map:")))
-        self._base_map_combo = QComboBox()
+        # Row 2: Opacity & Highlight
+        row2 = QHBoxLayout()
+        row2.addWidget(QLabel(self.tr("Opacity:")))
+        self._opacity_widget = QgsOpacityWidget()
+        self._opacity_widget.setOpacity(0.6)
+        row2.addWidget(self._opacity_widget)
+        
+        self._chk_highlight = QCheckBox(self.tr("Highlight Analyzed Object"))
+        self._chk_highlight.setChecked(True)
+        self._chk_highlight.setToolTip(self.tr("Draw a dashed outline around the current feature"))
+        row2.addWidget(self._chk_highlight)
+        map_layout.addLayout(row2)
+
+        # Row 3: Labeling
+        row3 = QHBoxLayout()
+        self._chk_labels = QCheckBox(self.tr("Labels:"))
+        row3.addWidget(self._chk_labels)
+        self._label_field_combo = QgsFieldComboBox()
+        self._label_field_combo.setEnabled(False)
+        self._chk_labels.toggled.connect(self._label_field_combo.setEnabled)
+        row3.addWidget(self._label_field_combo, stretch=1)
+        map_layout.addLayout(row3)
+
+        # Row 4: Base Map
+        row4 = QHBoxLayout()
+        row4.addWidget(QLabel(self.tr("Base Map:")))
+        self._basemap_combo = QComboBox()
         for bm in BaseMapType:
-            self._base_map_combo.addItem(bm.value, bm)
-        self._base_map_combo.setCurrentText(BaseMapType.NONE.value)
-        row_base.addWidget(self._base_map_combo, stretch=1)
-        map_layout.addLayout(row_base)
+            self._basemap_combo.addItem(bm.value, bm)
+        row4.addWidget(self._basemap_combo)
+        map_layout.addLayout(row4)
 
-        layout.addWidget(grp_map)
+        scroll_layout.addWidget(grp_map)
 
-        # Variable Alias
-        grp_alias = QGroupBox(self.tr("Map Settings"))
-        alias_layout = QVBoxLayout(grp_alias)
-        alias_layout.addWidget(QLabel(self.tr("Variable Alias (Subtitle):")))
+        # 2. Context Layers (Group)
+        grp_ctx = QGroupBox(self.tr("Context Layers"))
+        ctx_layout = QVBoxLayout(grp_ctx)
+        self._ctx_list = QListWidget()
+        self._ctx_list.setSelectionMode(QListWidget.MultiSelection)
+        self._ctx_list.setFixedHeight(80)
+        ctx_layout.addWidget(self._ctx_list)
+        scroll_layout.addWidget(grp_ctx)
+
+        # 3. Layout Customization (Group)
+        grp_layout = QGroupBox(self.tr("Layout Settings"))
+        lay_layout = QVBoxLayout(grp_layout)
+        
+        # Title Override
+        row_title = QHBoxLayout()
+        row_title.addWidget(QLabel(self.tr("Title Override:")))
+        self._title_edit = QLineEdit()
+        self._title_edit.setPlaceholderText(self.tr("Leave empty for feature name"))
+        row_title.addWidget(self._title_edit)
+        lay_layout.addLayout(row_title)
+
+        # Variable Alias (Subtitle)
+        row_alias = QHBoxLayout()
+        row_alias.addWidget(QLabel(self.tr("Subtitle (Alias):")))
         self._alias_edit = QLineEdit()
         self._alias_edit.setPlaceholderText(self.tr("e.g. Total Population 2024"))
-        alias_layout.addWidget(self._alias_edit)
-        layout.addWidget(grp_alias)
+        row_alias.addWidget(self._alias_edit)
+        lay_layout.addLayout(row_alias)
+
+        # Footer Override
+        row_footer = QHBoxLayout()
+        row_footer.addWidget(QLabel(self.tr("Footer Text:")))
+        self._footer_edit = QLineEdit()
+        self._footer_edit.setPlaceholderText(self.tr("Leave empty for default footer"))
+        row_footer.addWidget(self._footer_edit)
+        lay_layout.addLayout(row_footer)
+
+        # Colors
+        row_colors = QHBoxLayout()
+        row_colors.addWidget(QLabel(self.tr("Header Color:")))
+        self._col_header = QgsColorButton()
+        self._col_header.setColor(QColor("#1B2838"))
+        row_colors.addWidget(self._col_header)
+        
+        row_colors.addWidget(QLabel(self.tr("Footer Color:")))
+        self._col_footer = QgsColorButton()
+        self._col_footer.setColor(QColor("#1B2838"))
+        row_colors.addWidget(self._col_footer)
+        lay_layout.addLayout(row_colors)
+
+        scroll_layout.addWidget(grp_layout)
+
+        # 4. Charts & Template
+        grp_charts = QGroupBox(self.tr("Charts & Template"))
+        chart_layout = QVBoxLayout(grp_charts)
+        
+        # Charts
+        chart_layout.addWidget(QLabel(self.tr("Charts to Include:")))
+        self._chart_checks = {}
+        row_charts = QHBoxLayout()
+        for ct in ChartType:
+            chk = QCheckBox(ct.value)
+            chk.setChecked(True)
+            self._chart_checks[ct] = chk
+            row_charts.addWidget(chk)
+        chart_layout.addLayout(row_charts)
 
         # Template
-        grp_template = QGroupBox(self.tr("Report Template"))
-        tmpl_layout = QVBoxLayout(grp_template)
+        chart_layout.addWidget(QLabel(self.tr("Template:")))
         self._template_combo = QComboBox()
         self._template_combo.addItems([
             self.tr("Default (A4 Landscape)"),
@@ -295,17 +393,18 @@ class WizardDialog(QDialog):
             self.tr("Academic"),
             self.tr("Minimal"),
         ])
-        tmpl_layout.addWidget(self._template_combo)
-        tmpl_layout.addWidget(self._template_combo)
-        layout.addWidget(grp_template)
+        chart_layout.addWidget(self._template_combo)
+
+        scroll_layout.addWidget(grp_charts)
+
+        scroll.setWidget(content)
+        layout.addWidget(scroll)
 
         # Preview Button
-        self._btn_preview = QPushButton(self.tr("👁️ Preview Layout"))
-        self._btn_preview.setToolTip(self.tr("Generate a sample report for the first feature"))
+        self._btn_preview = QPushButton(self.tr("Refresh Preview"))
         self._btn_preview.clicked.connect(self._on_preview_clicked)
         layout.addWidget(self._btn_preview)
 
-        layout.addItem(QSpacerItem(0, 0, QSizePolicy.Minimum, QSizePolicy.Expanding))
         return page
 
     # ------------------------------------------------------------------
@@ -416,8 +515,30 @@ class WizardDialog(QDialog):
     # ------------------------------------------------------------------
 
     def _go_next(self) -> None:
-        if self._current_step == 0 and not self._validate_step_data():
-            return
+        if self._current_step == 0:
+            if not self._validate_step_data():
+                return
+            
+            # Prepare Step 2 (Style)
+            layer = self._layer_combo.currentLayer()
+            if layer:
+                # 1. Label Field
+                self._label_field_combo.setLayer(layer)
+                
+                # 2. Context Layers (exclude main layer)
+                self._ctx_list.clear()
+                project = QgsProject.instance()
+                for lyr in project.mapLayers().values():
+                    # Skip main layer and potential internal layers
+                    if lyr.id() == layer.id():
+                        continue
+                    # Skip rasters if not desired? User said "context", rasters are fine.
+                    item = QListWidgetItem(lyr.name())
+                    item.setData(Qt.UserRole, lyr.id())
+                    item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                    item.setCheckState(Qt.Unchecked)
+                    self._ctx_list.addItem(item)
+
         if self._current_step == 1 and not self._validate_step_style():
             return
         if self._current_step == 2:
@@ -429,17 +550,6 @@ class WizardDialog(QDialog):
         self._btn_back.setEnabled(True)
 
         if self._current_step == 2:
-             # Pre-fill alias if empty
-            if not self._alias_edit.text():
-                # Check for checked items instead of selected
-                first_checked = None
-                for i in range(self._indicator_list.count()):
-                    if self._indicator_list.item(i).checkState() == Qt.Checked:
-                        first_checked = self._indicator_list.item(i).text()
-                        break
-                
-                if first_checked:
-                     self._alias_edit.setText(first_checked)
             self._btn_next.setText(self.tr("🚀 Generate"))
 
         self._update_step_indicator()
@@ -463,15 +573,15 @@ class WizardDialog(QDialog):
         if not layer:
             QMessageBox.warning(self, self.tr("Validation"), self.tr("Please select a coverage layer."))
             return False
-
-        return True
-
-        selected_indicators = []
+            
+        # Check indicators
+        has_indic = False
         for i in range(self._indicator_list.count()):
             if self._indicator_list.item(i).checkState() == Qt.Checked:
-                selected_indicators.append(self._indicator_list.item(i))
-
-        if not selected_indicators:
+                has_indic = True
+                break
+        
+        if not has_indic:
             QMessageBox.warning(self, self.tr("Validation"), self.tr("Please select at least one indicator field."))
             return False
 
@@ -495,34 +605,63 @@ class WizardDialog(QDialog):
             if item.checkState() == Qt.Checked:
                 indicator_fields.append(item.text())
 
-        map_style = (
-            MapStyle.CHOROPLETH if self._radio_choropleth.isChecked()
-            else MapStyle.CATEGORICAL
-        )
+        # Map Style settings
+        map_style = self._style_combo.currentData()
+        ramp_name = self._ramp_combo.currentText()
+        base_map = self._basemap_combo.currentData()
+        
+        # New Phase 11 settings
+        map_opacity = self._opacity_widget.opacity()
+        highlight = self._chk_highlight.isChecked()
+        
+        label_field = None
+        if self._chk_labels.isChecked():
+            label_field = self._label_field_combo.currentField()
+            
+        context_ids = []
+        for i in range(self._ctx_list.count()):
+            item = self._ctx_list.item(i)
+            if item.checkState() == Qt.Checked:
+                context_ids.append(item.data(Qt.UserRole))
+                
+        # Layout settings
+        custom_title = self._title_edit.text()
+        custom_footer = self._footer_edit.text()
+        header_color = self._col_header.color().name()
+        footer_color = self._col_footer.color().name()
+        variable_alias = self._alias_edit.text().strip()
 
-        chart_types: List[ChartType] = []
-        # Charts removed as per user request (map-centric focus)
-
+        # Charts
+        chart_types = []
+        for ct, chk in self._chart_checks.items():
+            if chk.isChecked():
+                chart_types.append(ct)
+        
         output_format = OutputFormat.PDF if self._radio_pdf.isChecked() else OutputFormat.PNG
-
-        output_dir = self._dir_edit.text().strip()
-        if not output_dir:
-            output_dir = str(Path.home() / "AutoAtlas_Output")
+        output_dir = Path(self._dir_edit.text().strip())
 
         return ReportConfig(
             layer_id=layer.id(),
-            id_field=self._id_field_combo.currentText(),
-            name_field=self._name_field_combo.currentText(),
+            id_field=self._id_field_combo.currentField(),
+            name_field=self._name_field_combo.currentField(),
             indicator_fields=indicator_fields,
             map_style=map_style,
-            color_ramp_name=self._ramp_combo.currentText(),
+            color_ramp_name=ramp_name,
+            base_map=base_map,
             chart_types=chart_types,
             output_format=output_format,
-            output_dir=Path(output_dir),
+            output_dir=output_dir,
             dpi=self._dpi_spin.value(),
-            # base_map
-            base_map=self._base_map_combo.currentData(),
-            variable_alias=self._alias_edit.text().strip()
+            # Phase 11
+            map_opacity=map_opacity,
+            highlight_analyzed=highlight,
+            label_field=label_field,
+            context_layer_ids=context_ids,
+            custom_title=custom_title,
+            custom_footer=custom_footer,
+            header_color=header_color,
+            footer_color=footer_color,
+            variable_alias=variable_alias,
         )
 
     def _generate_reports(self) -> None:

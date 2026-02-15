@@ -223,6 +223,15 @@ class ReportConfig:
     feature_ids: Optional[List[Any]] = None
     variable_alias: str = ""
     base_map: BaseMapType = BaseMapType.NONE
+    # Phase 11: Advanced Customization
+    label_field: Optional[str] = None
+    map_opacity: float = 0.60
+    context_layer_ids: List[str] = field(default_factory=list)
+    highlight_analyzed: bool = True
+    custom_title: str = ""
+    custom_footer: str = ""
+    header_color: str = "#1B2838"
+    footer_color: str = "#1B2838"
 
     def __post_init__(self) -> None:
         """Validate configuration values."""
