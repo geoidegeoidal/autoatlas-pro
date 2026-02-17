@@ -349,14 +349,14 @@ class ReportComposer:
                 context_layers.append(lyr)
 
         # ── Set Layers: Order matters (First = Top) ──
-        # [Highlight, LabelLayer(Main), Contexts..., BaseMap]
+        # [Highlight, Contexts..., MainLayer, BaseMap]
         layers_for_map = []
         if highlight_layer:
             layers_for_map.append(highlight_layer)
-        
-        layers_for_map.append(layer)
+
         layers_for_map.extend(context_layers)
-        
+        layers_for_map.append(layer)
+
         if base_layer and base_layer.isValid():
             layers_for_map.append(base_layer)
 

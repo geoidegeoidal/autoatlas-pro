@@ -338,15 +338,33 @@ class MapRenderer:
         color: str = "#FF00FF",
         width: float = 0.8,
     ) -> Optional[QgsVectorLayer]:
-        """Create a transient memory layer highlighting the geometry."""
-        from qgis.core import QgsFeature, QgsField, QgsFillSymbol, QgsVectorLayer
-        from typing import Any, Optional
+        """Create a transient memory layer highlighting the geometry.
+
+        Supports Polygon, LineString, and Point geometries.
+        """
+        from qgis.core import (
+            QgsFeature, QgsFillSymbol, QgsLineSymbol,
+            QgsMarkerSymbol, QgsVectorLayer, QgsWkbTypes,
+        )
 
         if not geometry or geometry.isEmpty():
             return None
 
+        # Detect geometry type for the memory layer URI and symbol
+        geom_type = QgsWkbTypes.geometryType(geometry.wkbType())
+        is_multi = QgsWkbTypes.isMultiType(geometry.wkbType())
+
+        if geom_type == QgsWkbTypes.PolygonGeometry:
+            uri_type = "MultiPolygon" if is_multi else "Polygon"
+        elif geom_type == QgsWkbTypes.LineGeometry:
+            uri_type = "MultiLineString" if is_multi else "LineString"
+        elif geom_type == QgsWkbTypes.PointGeometry:
+            uri_type = "MultiPoint" if is_multi else "Point"
+        else:
+            return None
+
         # Create memory layer
-        uri = f"Polygon?crs={crs.authid()}"
+        uri = f"{uri_type}?crs={crs.authid()}"
         layer = QgsVectorLayer(uri, "Highlight", "memory")
         if not layer.isValid():
             return None
@@ -357,15 +375,29 @@ class MapRenderer:
         prov.addFeatures([feat])
         layer.updateExtents()
 
-        # Apply symbol: Transparent fill, dashed outline
-        symbol = QgsFillSymbol.createSimple({
-            "color": "0,0,0,0",  # Fully transparent fill
-            "outline_color": color,
-            "outline_style": "dash",
-            "outline_width": str(width),
-        })
+        # Apply symbol based on geometry type
+        if geom_type == QgsWkbTypes.PolygonGeometry:
+            symbol = QgsFillSymbol.createSimple({
+                "color": "0,0,0,0",
+                "outline_color": color,
+                "outline_style": "dash",
+                "outline_width": str(width),
+            })
+        elif geom_type == QgsWkbTypes.LineGeometry:
+            symbol = QgsLineSymbol.createSimple({
+                "color": color,
+                "width": str(width * 2),
+                "line_style": "dash",
+            })
+        else:  # Point
+            symbol = QgsMarkerSymbol.createSimple({
+                "color": color,
+                "size": str(max(width * 5, 3.0)),
+                "outline_color": color,
+                "outline_width": "0.5",
+            })
+
         layer.renderer().setSymbol(symbol)
-        
         return layer
 
     # ------------------------------------------------------------------
