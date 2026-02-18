@@ -95,6 +95,11 @@ TRANS_UI = {
         "grp_legend": "Configuración de Leyenda",
         "legend_title": "Título de Leyenda:",
         "layer_alias": "Alias de Capa Análisis:",
+        "grp_layout": "Configuración de Diseño",
+        "title_override": "Título Personalizado:",
+        "footer_override": "Texto del Pie de Página:",
+        "col_header": "Color Encabezado:",
+        "col_footer": "Color Pie de Página:",
         "step3_title": "Configuración de Salida",
         "step3_desc": "Elige formato y destino.",
         "grp_format": "Formato de Salida",
@@ -136,6 +141,11 @@ TRANS_UI = {
         "grp_legend": "Legend Settings",
         "legend_title": "Legend Title:",
         "layer_alias": "Analysis Layer Alias:",
+        "grp_layout": "Layout Settings",
+        "title_override": "Title Override:",
+        "footer_override": "Footer Text:",
+        "col_header": "Header Color:",
+        "col_footer": "Footer Color:",
         "step3_title": "Output Configuration",
         "step3_desc": "Choose format and destination.",
         "grp_format": "Output Format",
@@ -280,7 +290,7 @@ class WizardDialog(QDialog):
         )
         self._layer_combo.layerChanged.connect(self._on_layer_changed)
         grp_layout.addWidget(self._layer_combo)
-        layout.addWidget(grp_layer)
+        layout.addWidget(self._grp_layer)
 
         # Fields
         self._grp_fields = QGroupBox(self.tr("Fields"))
@@ -317,7 +327,7 @@ class WizardDialog(QDialog):
         self._indicator_list.setMaximumHeight(150)
         fields_layout.addWidget(self._indicator_list)
 
-        layout.addWidget(grp_fields)
+        layout.addWidget(self._grp_fields)
         layout.addItem(QSpacerItem(0, 0, QSizePolicy.Minimum, QSizePolicy.Expanding))
 
         # Populate if a layer is already selected
@@ -552,12 +562,13 @@ class WizardDialog(QDialog):
         scroll_layout.addWidget(self._grp_legend)
 
         # 4. Layout Customization (Group)
-        grp_layout = QGroupBox(self.tr("Layout Settings"))
-        lay_layout = QVBoxLayout(grp_layout)
+        self._grp_layout_settings = QGroupBox(self.tr("Layout Settings"))
+        lay_layout = QVBoxLayout(self._grp_layout_settings)
         
         # Title Override
         row_title = QHBoxLayout()
-        row_title.addWidget(QLabel(self.tr("Title Override:")))
+        self._lbl_title_override = QLabel(self.tr("Title Override:"))
+        row_title.addWidget(self._lbl_title_override)
         self._title_edit = QLineEdit()
         self._title_edit.setPlaceholderText(self.tr("Leave empty for feature name"))
         row_title.addWidget(self._title_edit)
@@ -565,7 +576,8 @@ class WizardDialog(QDialog):
 
         # Footer Override
         row_footer = QHBoxLayout()
-        row_footer.addWidget(QLabel(self.tr("Footer Text:")))
+        self._lbl_footer_override = QLabel(self.tr("Footer Text:"))
+        row_footer.addWidget(self._lbl_footer_override)
         self._footer_edit = QLineEdit()
         self._footer_edit.setPlaceholderText(self.tr("Leave empty for default footer"))
         row_footer.addWidget(self._footer_edit)
@@ -573,18 +585,20 @@ class WizardDialog(QDialog):
 
         # Colors
         row_colors = QHBoxLayout()
-        row_colors.addWidget(QLabel(self.tr("Header Color:")))
+        self._lbl_col_header = QLabel(self.tr("Header Color:"))
+        row_colors.addWidget(self._lbl_col_header)
         self._col_header = QgsColorButton()
         self._col_header.setColor(QColor("#1B2838"))
         row_colors.addWidget(self._col_header)
         
-        row_colors.addWidget(QLabel(self.tr("Footer Color:")))
+        self._lbl_col_footer = QLabel(self.tr("Footer Color:"))
+        row_colors.addWidget(self._lbl_col_footer)
         self._col_footer = QgsColorButton()
         self._col_footer.setColor(QColor("#1B2838"))
         row_colors.addWidget(self._col_footer)
         lay_layout.addLayout(row_colors)
 
-        scroll_layout.addWidget(grp_layout)
+        scroll_layout.addWidget(self._grp_layout_settings)
         
 
 
@@ -774,6 +788,11 @@ class WizardDialog(QDialog):
         if hasattr(self, "_grp_legend"): self._grp_legend.setTitle(tr["grp_legend"])
         if hasattr(self, "_lbl_legend_title"): self._lbl_legend_title.setText(tr["legend_title"])
         if hasattr(self, "_lbl_layer_alias"): self._lbl_layer_alias.setText(tr["layer_alias"])
+        if hasattr(self, "_grp_layout_settings"): self._grp_layout_settings.setTitle(tr["grp_layout"])
+        if hasattr(self, "_lbl_title_override"): self._lbl_title_override.setText(tr["title_override"])
+        if hasattr(self, "_lbl_footer_override"): self._lbl_footer_override.setText(tr["footer_override"])
+        if hasattr(self, "_lbl_col_header"): self._lbl_col_header.setText(tr["col_header"])
+        if hasattr(self, "_lbl_col_footer"): self._lbl_col_footer.setText(tr["col_footer"])
         
         # Step 3
         if hasattr(self, "_lbl_step3_title"): self._lbl_step3_title.setText(f"<h3>{tr['step3_title']}</h3><p>{tr['step3_desc']}</p>")
