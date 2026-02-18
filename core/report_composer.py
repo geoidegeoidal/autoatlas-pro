@@ -329,10 +329,15 @@ class ReportComposer:
         else:
             text_indent = 0
 
-        # Title & Subtitle (Adjust for Logo)
+        # Title & Subtitle
+        # Use full page width for title/subtitle to ensure they are centered on the PAGE,
+        # regardless of logo presence (unless text is extremely long, which is edge case).
+        # User requested strict centering relative to page borders.
         title_text = config.custom_title or name
-        title_x = text_indent if config.logo_position == "Left" else 0
-        title_w = pw - text_indent - (logo_w + logo_margin * 2 if config.logo_position == "Right" else 0)
+        
+        # Always use full width for centering
+        title_x = 0.0
+        title_w = pw
         
         self._add_label(
             layout, title_text,
@@ -401,16 +406,30 @@ class ReportComposer:
 
         # ── Visual Enhancements ──
 
-        # 1. Labels
+        # 1. Apply Style (Refactored Phase 16)
+        self._map_renderer.apply_style(
+            layer,
+            config.map_style,
+            primary_field,
+            color_ramp=config.color_ramp_name,
+            graduated_mode=config.graduated_mode,
+            classes=config.graduated_classes,
+            single_color=config.single_color,
+            category_field=config.category_field,
+            opacity=config.map_opacity
+        )
+
+        # 2. Labels
         if config.label_field:
             self._map_renderer.setup_labels(layer, config.label_field)
         else:
             layer.setLabelsEnabled(False)
 
-        # 2. Highlight Overlay (Analyzed Feature)
+        # 3. Highlight Overlay (Analyzed Feature)
         highlight_layer = None
         if config.highlight_analyzed:
              # Get feature geometry
+             # Re-fetch feature to ensure valid context
              iterator = layer.getFeatures(QgsFeatureRequest().setFilterExpression(
                  self._map_renderer._build_filter_expression(feature_id, config.id_field)
              ))
@@ -464,9 +483,6 @@ class ReportComposer:
         # ══════════════════════════════════════════════════════════════
         # 3. LEGEND
         # ══════════════════════════════════════════════════════════════
-        # ══════════════════════════════════════════════════════════════
-        # 3. LEGEND
-        # ══════════════════════════════════════════════════════════════
         if is_vertical:
             # Vertical: Legend at Bottom
             legend_x = margin
@@ -496,7 +512,16 @@ class ReportComposer:
         if config.layer_legend_alias:
             layer.setName(config.layer_legend_alias)
 
-        legend_cols = 4 if is_vertical else 1
+        # Dynamic column count logic:
+        # Use 2 columns only if we have many context layers or a large categorical legend,
+        # otherwise keep it compact in 1 column to avoid sparse look.
+        is_categorical = config.map_style == MapStyle.CATEGORIZED
+        total_layers = len(legend_layers)
+        
+        legend_cols = 1
+        if is_vertical:
+            if is_categorical or total_layers > 4:
+                legend_cols = 2
         # For vertical layout (bottom legend), let it auto-size (compact columns).
         # For horizontal (side legend), constrain width to the side panel.
         width_constraint = 0.0 if is_vertical else (legend_w - 4)
@@ -712,16 +737,18 @@ class ReportComposer:
         config: ReportConfig,
         primary_field: str,
     ) -> None:
-        """Apply the correct renderer to the layer."""
-        if config.map_style == MapStyle.CHOROPLETH:
-            self._map_renderer._apply_graduated_renderer(
-                layer, primary_field, config.color_ramp_name, num_classes=5,
-                opacity=config.map_opacity
-            )
-        elif config.map_style == MapStyle.CATEGORICAL:
-            self._map_renderer._apply_categorical_renderer(
-                layer, primary_field, opacity=config.map_opacity
-            )
+        """Apply the correct renderer to the layer (helper for external use)."""
+        self._map_renderer.apply_style(
+            layer,
+            config.map_style,
+            primary_field,
+            color_ramp=config.color_ramp_name,
+            graduated_mode=config.graduated_mode,
+            classes=config.graduated_classes,
+            single_color=config.single_color,
+            category_field=config.category_field,
+            opacity=config.map_opacity
+        )
 
     # ------------------------------------------------------------------
     # CRS transform

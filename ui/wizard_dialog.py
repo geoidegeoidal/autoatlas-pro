@@ -44,9 +44,9 @@ from qgis.PyQt.QtWidgets import (
     QProgressBar,
     QPushButton,
     QRadioButton,
+    QScrollArea,
     QSizePolicy,
     QSpacerItem,
-    QScrollArea,
     QSpinBox,
     QStackedWidget,
     QTableWidget,
@@ -347,11 +347,34 @@ class WizardDialog(QDialog):
 
         return page
 
+    def _on_style_changed(self, idx: int) -> None:
+        """Show/hide style controls based on selected map style."""
+        style_data = self._style_combo.itemData(idx)
+        if not style_data:
+            return
+
+        # Hide all first
+        self._wdg_single.setVisible(False)
+        self._wdg_graduated.setVisible(False)
+        self._wdg_categorized.setVisible(False)
+        
+        # Show relevant
+        if style_data == MapStyle.SINGLE:
+            self._wdg_single.setVisible(True)
+        elif style_data == MapStyle.GRADUATED:
+            self._wdg_graduated.setVisible(True)
+        elif style_data == MapStyle.CATEGORIZED:
+            self._wdg_categorized.setVisible(True)
+
     def _on_layer_changed(self, layer: Optional[QgsVectorLayer]) -> None:
         """Populate field combos when layer selection changes."""
         self._id_field_combo.clear()
         self._name_field_combo.clear()
         self._indicator_list.clear()
+        
+        # Update Categorized Column Combo (only if Step 2 is built)
+        if hasattr(self, "_cat_col_combo"):
+            self._cat_col_combo.setLayer(layer)
 
         if not layer:
             return
@@ -436,21 +459,90 @@ class WizardDialog(QDialog):
         self._grp_map = QGroupBox(self.tr("Map Styling"))
         map_layout = QVBoxLayout(self._grp_map)
         
-        # Row 1: Style & Ramp
-        row1 = QHBoxLayout()
+        # Row 1: Layer Styling Config
+        # ---------------------------
+        # Style Type
+        row_style = QHBoxLayout()
         self._lbl_style = QLabel(self.tr("Style:"))
-        row1.addWidget(self._lbl_style)
+        row_style.addWidget(self._lbl_style)
         self._style_combo = QComboBox()
         for s in MapStyle:
             self._style_combo.addItem(s.value, s)
-        row1.addWidget(self._style_combo)
+        self._style_combo.currentIndexChanged.connect(self._on_style_changed)
+        row_style.addWidget(self._style_combo, stretch=1)
+        map_layout.addLayout(row_style)
+
+        # Dynamic Controls Container
+        self._wdg_style_details = QWidget()
+        self._lay_style_details = QVBoxLayout(self._wdg_style_details)
+        self._lay_style_details.setContentsMargins(0, 0, 0, 0)
         
-        self._lbl_ramp = QLabel(self.tr("Ramp:"))
-        row1.addWidget(self._lbl_ramp)
+        # -- Single Symbol Controls --
+        self._wdg_single = QWidget()
+        lay_single = QHBoxLayout(self._wdg_single)
+        lay_single.setContentsMargins(0, 0, 0, 0)
+        lay_single.addWidget(QLabel(self.tr("Color:")))
+        self._color_btn_single = QgsColorButton()
+        self._color_btn_single.setColor(QColor("#3388FF"))
+        lay_single.addWidget(self._color_btn_single)
+        lay_single.addStretch()
+        self._lay_style_details.addWidget(self._wdg_single)
+
+        # -- Graduated Controls --
+        self._wdg_graduated = QWidget()
+        lay_grad = QVBoxLayout(self._wdg_graduated)
+        lay_grad.setContentsMargins(0, 0, 0, 0)
+        
+        row_grad_1 = QHBoxLayout()
+        row_grad_1.addWidget(QLabel(self.tr("Mode:")))
+        self._mode_combo = QComboBox()
+        for m in GraduatedMode:
+            self._mode_combo.addItem(m.value, m)
+        row_grad_1.addWidget(self._mode_combo, stretch=1)
+        
+        row_grad_1.addWidget(QLabel(self.tr("Classes:")))
+        self._classes_spin = QSpinBox()
+        self._classes_spin.setRange(2, 12)
+        self._classes_spin.setValue(5)
+        row_grad_1.addWidget(self._classes_spin)
+        lay_grad.addLayout(row_grad_1)
+        
+        row_grad_2 = QHBoxLayout()
+        row_grad_2.addWidget(QLabel(self.tr("Ramp:")))
         self._ramp_combo = QComboBox()
         self._ramp_combo.addItems(["Spectral", "Viridis", "Plasma", "Blues", "Reds", "Greens", "Magma", "Inferno"])
-        row1.addWidget(self._ramp_combo)
-        map_layout.addLayout(row1)
+        row_grad_2.addWidget(self._ramp_combo, stretch=1)
+        lay_grad.addLayout(row_grad_2)
+        
+        self._lay_style_details.addWidget(self._wdg_graduated)
+
+        # -- Categorized Controls --
+        self._wdg_categorized = QWidget()
+        lay_cat = QVBoxLayout(self._wdg_categorized)
+        lay_cat.setContentsMargins(0, 0, 0, 0)
+        
+        row_cat_1 = QHBoxLayout()
+        row_cat_1.addWidget(QLabel(self.tr("Column:")))
+        self._cat_col_combo = QgsFieldComboBox()
+        # Initialize with current layer since _on_layer_changed skipped it (was not built yet)
+        if self._layer_combo.currentLayer():
+            self._cat_col_combo.setLayer(self._layer_combo.currentLayer())
+        row_cat_1.addWidget(self._cat_col_combo, stretch=1)
+        lay_cat.addLayout(row_cat_1)
+        
+        row_cat_2 = QHBoxLayout()
+        row_cat_2.addWidget(QLabel(self.tr("Ramp:")))
+        self._cat_ramp_combo = QComboBox()
+        self._cat_ramp_combo.addItems(["Spectral", "Viridis", "Plasma", "Random"]) # Simplified
+        row_cat_2.addWidget(self._cat_ramp_combo, stretch=1)
+        lay_cat.addLayout(row_cat_2)
+        
+        self._lay_style_details.addWidget(self._wdg_categorized)
+        
+        map_layout.addWidget(self._wdg_style_details)
+
+        # Trigger initial state update
+        self._on_style_changed(0)
 
         # Row 2: Opacity & Highlight
         row2 = QHBoxLayout()
@@ -1012,6 +1104,22 @@ class WizardDialog(QDialog):
         output_format = OutputFormat.PDF if self._radio_pdf.isChecked() else OutputFormat.PNG
         output_dir = Path(self._dir_edit.text().strip())
 
+        # Style Settings
+        map_style = self._style_combo.currentData()
+        
+        # Determine ramp based on style
+        ramp_name = "Spectral"
+        if map_style == MapStyle.GRADUATED:
+            ramp_name = self._ramp_combo.currentText()
+        elif map_style == MapStyle.CATEGORIZED:
+            ramp_name = self._cat_ramp_combo.currentText()
+            
+        # Specific style params
+        graduated_mode = self._mode_combo.currentData()
+        graduated_classes = self._classes_spin.value()
+        single_color = self._color_btn_single.color().name()
+        category_field = self._cat_col_combo.currentField()
+        
         return ReportConfig(
             layer_id=layer.id(),
             id_field=self._id_field_combo.currentText(),
@@ -1019,6 +1127,12 @@ class WizardDialog(QDialog):
             indicator_fields=indicator_fields,
             map_style=map_style,
             color_ramp_name=ramp_name,
+            # Style details
+            graduated_mode=graduated_mode,
+            graduated_classes=graduated_classes,
+            single_color=single_color,
+            category_field=category_field,
+            
             base_map=base_map,
             chart_types=chart_types,
             output_format=output_format,

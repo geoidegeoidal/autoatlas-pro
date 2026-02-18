@@ -10,6 +10,8 @@ from typing import List, Optional, Tuple
 
 from qgis.core import (
     Qgis,
+    QgsCategorizedSymbolRenderer,
+    QgsClassificationMethod,
     QgsFeatureRequest,
     QgsGraduatedSymbolRenderer,
     QgsLayoutItemLabel,
@@ -24,8 +26,10 @@ from qgis.core import (
     QgsPrintLayout,
     QgsProject,
     QgsRectangle,
+    QgsRendererCategory,
     QgsRendererRange,
     QgsSimpleFillSymbolLayer,
+    QgsSingleSymbolRenderer,
     QgsStyle,
     QgsSymbol,
     QgsUnitTypes,
@@ -34,7 +38,7 @@ from qgis.core import (
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import QColor, QFont
 
-from .models import MapStyle
+from .models import MapStyle, GraduatedMode
 
 
 class MapRenderer:
@@ -101,34 +105,126 @@ class MapRenderer:
         map_item.setKeepLayerStyles(True)
         return map_item
 
-    @staticmethod
-    def _apply_categorical_renderer(
+    def apply_style(
+        self,
         layer: QgsVectorLayer,
+        style: MapStyle,
         field_name: str,
+        color_ramp: str = "Spectral",
+        # Detailed config
+        graduated_mode: GraduatedMode = GraduatedMode.QUANTILE,
+        classes: int = 5,
+        single_color: str = "#3388FF",
+        category_field: str = None,
         opacity: float = 1.0,
     ) -> None:
-        """Apply a categorized renderer using Spectral color ramp."""
-        from qgis.core import QgsCategorizedSymbolRenderer, QgsRendererCategory
-
+        """Apply the specified map style to the vector layer."""
         layer.setOpacity(opacity)
-        categories = []
-        unique_values = sorted(set(
-            f[field_name]
-            for f in layer.getFeatures()
-            if f[field_name] is not None
-        ))
+        
+        if style == MapStyle.SINGLE:
+            self._apply_single_symbol(layer, single_color)
+        elif style == MapStyle.GRADUATED:
+            self._apply_graduated_symbol(
+                layer, field_name, graduated_mode, classes, color_ramp
+            )
+        elif style == MapStyle.CATEGORIZED:
+            # Use specific category field if provided, else fallback to indicator
+            target_field = category_field if category_field else field_name
+            self._apply_categorized_symbol(layer, target_field, color_ramp)
+        
+        layer.triggerRepaint()
 
-        ramp = QgsStyle.defaultStyle().colorRamp("Spectral")
-        for i, val in enumerate(unique_values):
+    def _apply_single_symbol(self, layer: QgsVectorLayer, color_hex: str) -> None:
+        """Apply single symbol renderer."""
+        symbol = QgsSymbol.defaultSymbol(layer.geometryType())
+        symbol.setColor(QColor(color_hex))
+        renderer = QgsSingleSymbolRenderer(symbol)
+        layer.setRenderer(renderer)
+
+    def _apply_graduated_symbol(
+        self,
+        layer: QgsVectorLayer,
+        field_name: str,
+        mode: GraduatedMode,
+        classes: int,
+        ramp_name: str,
+    ) -> None:
+        """Apply graduated symbol renderer."""
+        # Create base range
+        symbol = QgsSymbol.defaultSymbol(layer.geometryType())
+        ramp = QgsStyle.defaultStyle().colorRamp(ramp_name)
+        if not ramp:
+            ramp = QgsStyle.defaultStyle().colorRamp("Spectral")
+
+        renderer = QgsGraduatedSymbolRenderer()
+        renderer.setClassAttribute(field_name)
+        renderer.setSourceSymbol(symbol)
+        renderer.setSourceColorRamp(ramp)
+        
+        # Map GraduatedMode enum to QgsClassificationMethod
+        # Note: In QGIS API 3, we often use setClassificationMethod
+        # But for simplicity with QgsGraduatedSymbolRenderer.createRenderer usually handles it
+        # Here we manually set mode.
+        
+        qgis_mode = QgsGraduatedSymbolRenderer.Quantile
+        if mode == GraduatedMode.EQUAL_INTERVAL:
+            qgis_mode = QgsGraduatedSymbolRenderer.EqualInterval
+        elif mode == GraduatedMode.JENKS:
+            qgis_mode = QgsGraduatedSymbolRenderer.Jenks
+        elif mode == GraduatedMode.PRETTY:
+            qgis_mode = QgsGraduatedSymbolRenderer.Pretty
+            
+        renderer.setMode(qgis_mode)
+        renderer.updateClasses(layer, classes)
+        
+        # Apply strict checking
+        if len(renderer.ranges()) == 0:
+             # Fallback if classification failed (e.g. no data)
+             pass
+             
+        layer.setRenderer(renderer)
+
+    def _apply_categorized_symbol(
+        self,
+        layer: QgsVectorLayer,
+        field_name: str,
+        ramp_name: str,
+    ) -> None:
+        """Apply categorized renderer."""
+        categories = []
+        unique_values = set()
+        
+        # Get unique values efficiently
+        idx = layer.fields().indexOf(field_name)
+        if idx != -1:
+            unique_values = layer.uniqueValues(idx)
+        
+        # Sort if possible
+        try:
+            sorted_values = sorted(unique_values)
+        except:
+            sorted_values = list(unique_values)
+
+        ramp = QgsStyle.defaultStyle().colorRamp(ramp_name)
+        if not ramp and ramp_name != "Random":
+             ramp = QgsStyle.defaultStyle().colorRamp("Spectral")
+
+        for i, val in enumerate(sorted_values):
             symbol = QgsSymbol.defaultSymbol(layer.geometryType())
-            if ramp and len(unique_values) > 1:
-                color = ramp.color(i / max(len(unique_values) - 1, 1))
+            
+            if ramp_name == "Random":
+                from random import randint
+                color = QColor(randint(0,255), randint(0,255), randint(0,255))
                 symbol.setColor(color)
-            categories.append(QgsRendererCategory(val, symbol, str(val)))
+            elif ramp and len(sorted_values) > 1:
+                color = ramp.color(i / max(len(sorted_values) - 1, 1))
+                symbol.setColor(color)
+            
+            label_val = str(val) if val is not None else ""
+            categories.append(QgsRendererCategory(val, symbol, label_val))
 
         renderer = QgsCategorizedSymbolRenderer(field_name, categories)
         layer.setRenderer(renderer)
-        layer.triggerRepaint()
 
     # ------------------------------------------------------------------
     # Layout element helpers
@@ -198,9 +294,9 @@ class MapRenderer:
         if title:
             legend.setTitle(title)
 
-        # Configure columns
+        # Configure columns but prevent splitting individual layers (keeps ramps vertical)
         legend.setColumnCount(columns)
-        legend.setSplitLayer(True if columns > 1 else False)
+        legend.setSplitLayer(False)
 
         # ── Responsive font hierarchy ──
         n = len(layers) if layers else 1

@@ -20,9 +20,9 @@ from typing import Any, Dict, List, Optional, Tuple
 class MapStyle(str, Enum):
     """Available map rendering styles."""
 
-    CHOROPLETH = "Choropleth"
-    CATEGORICAL = "Categorical"
-    BIVARIATE = "Bivariate"
+    SINGLE = "Single Symbol"
+    GRADUATED = "Graduated"
+    CATEGORIZED = "Categorized"
 
 
 class BaseMapType(str, Enum):
@@ -41,6 +41,15 @@ class BaseMapType(str, Enum):
     BING_SATELLITE = "Bing Satellite"
 
 
+class GraduatedMode(str, Enum):
+    """Classification modes for graduated renderer."""
+    
+    EQUAL_INTERVAL = "Equal Interval"
+    QUANTILE = "Quantile"
+    JENKS = "Jenks (Natural Breaks)"
+    PRETTY = "Pretty Breaks"
+
+
 class ChartType(str, Enum):
     """Available chart types for reports."""
 
@@ -48,6 +57,7 @@ class ChartType(str, Enum):
     RANKING = "Ranking"
     WAFFLE = "Waffle"
     SUMMARY_TABLE = "Summary Table"
+
 
 
 class OutputFormat(Enum):
@@ -221,8 +231,14 @@ class ReportConfig:
     id_field: str
     name_field: str
     indicator_fields: List[str]
-    map_style: MapStyle = MapStyle.CHOROPLETH
+    map_style: MapStyle = MapStyle.GRADUATED
     color_ramp_name: str = "Spectral"
+    # Style details
+    graduated_mode: GraduatedMode = GraduatedMode.QUANTILE
+    graduated_classes: int = 5
+    single_color: str = "#3388FF"
+    category_field: Optional[str] = None
+    
     chart_types: List[ChartType] = field(
         default_factory=lambda: [
             ChartType.DISTRIBUTION,
