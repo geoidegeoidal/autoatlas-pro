@@ -384,7 +384,10 @@ class ReportComposer:
         # or we just get geometry directly here.
         
         # Let's get geometry directly using FID
-        req = QgsFeatureRequest().setFilterFid(feature_id)
+        # Use expression filter since feature_id corresponds to the chosen ID field (attribute),
+        # not necessarily the internal QGIS Feature ID (FID).
+        expr = self._map_renderer._build_filter_expression(feature_id, config.id_field)
+        req = QgsFeatureRequest().setFilterExpression(expr)
         feat = next(layer.getFeatures(req), None)
         if feat and feat.geometry():
             extent_layer_crs = feat.geometry().boundingBox()
