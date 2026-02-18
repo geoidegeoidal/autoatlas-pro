@@ -342,7 +342,7 @@ class ReportComposer:
             color=palette.get("title_color", "#FFFFFF"),
         )
 
-        subtitle = config.variable_alias or primary_field
+        subtitle = config.custom_subtitle or config.variable_alias or primary_field
         self._add_label(
             layout, subtitle,
             rect_mm=(title_x, 16, title_w, 10),
@@ -496,10 +496,13 @@ class ReportComposer:
         if config.layer_legend_alias:
             layer.setName(config.layer_legend_alias)
 
+        legend_cols = 4 if is_vertical else 1
+        
         self._map_renderer.add_legend(
             layout, map_item, (legend_x + 2, legend_y + 2),
             title=legend_title, layers=legend_layers,
             max_width_mm=legend_w - 4,
+            columns=legend_cols,
         )
 
         # ══════════════════════════════════════════════════════════════

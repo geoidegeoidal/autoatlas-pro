@@ -247,6 +247,7 @@ class ReportConfig:
     show_overview_labels: bool = False
     layer_legend_alias: str = ""
     custom_title: str = ""
+    custom_subtitle: str = ""
     custom_footer: str = ""
     # Phase 15: Enhancements (Logo, Lang, Template)
     language: str = "es"

@@ -579,6 +579,15 @@ class WizardDialog(QDialog):
         row_title.addWidget(self._title_edit)
         lay_layout.addLayout(row_title)
 
+        # Subtitle Override
+        row_subtitle = QHBoxLayout()
+        self._lbl_subtitle_override = QLabel(self.tr("Subtitle Override:"))
+        row_subtitle.addWidget(self._lbl_subtitle_override)
+        self._subtitle_edit = QLineEdit()
+        self._subtitle_edit.setPlaceholderText(self.tr("Leave empty to use variable name"))
+        row_subtitle.addWidget(self._subtitle_edit)
+        lay_layout.addLayout(row_subtitle)
+
         # Footer Override
         row_footer = QHBoxLayout()
         self._lbl_footer_override = QLabel(self.tr("Footer Text:"))
@@ -1023,7 +1032,9 @@ class WizardDialog(QDialog):
             show_overview_map=show_overview_map,
             show_overview_labels=show_overview_labels,
             layer_legend_alias=layer_legend_alias,
+
             custom_title=custom_title,
+            custom_subtitle=self._subtitle_edit.text().strip(),
             custom_footer=custom_footer,
             header_color=header_color,
             footer_color=footer_color,

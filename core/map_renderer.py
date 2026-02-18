@@ -165,6 +165,7 @@ class MapRenderer:
         title: str = "",
         layers: Optional[List[QgsMapLayer]] = None,
         max_width_mm: float = 0.0,
+        columns: int = 1,
     ) -> QgsLayoutItemLegend:
         """Add a legend linked to a map item.
 
@@ -175,6 +176,7 @@ class MapRenderer:
             title: Optional title for the legend.
             layers: If set, only show these layers (excludes all others).
             max_width_mm: If > 0, constrain legend width to this value.
+            columns: Number of columns for the legend layout.
 
         Returns:
             The created legend item.
@@ -196,9 +198,9 @@ class MapRenderer:
         if title:
             legend.setTitle(title)
 
-        # Force single column layout
-        legend.setColumnCount(1)
-        legend.setSplitLayer(False)
+        # Configure columns
+        legend.setColumnCount(columns)
+        legend.setSplitLayer(True if columns > 1 else False)
 
         # ── Responsive font hierarchy ──
         n = len(layers) if layers else 1
