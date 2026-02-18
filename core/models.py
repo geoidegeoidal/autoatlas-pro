@@ -244,9 +244,15 @@ class ReportConfig:
     context_layers_config: List[ContextLayerConfig] = field(default_factory=list)
     highlight_analyzed: bool = True
     show_overview_map: bool = False
+    show_overview_labels: bool = False
     layer_legend_alias: str = ""
     custom_title: str = ""
     custom_footer: str = ""
+    # Phase 15: Enhancements (Logo, Lang, Template)
+    language: str = "es"
+    template_name: str = "A4 Landscape"
+    logo_path: str = ""
+    logo_position: str = "Right"
     header_color: str = "#1B2838"
     footer_color: str = "#1B2838"
 

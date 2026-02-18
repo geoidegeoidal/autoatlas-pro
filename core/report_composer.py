@@ -23,6 +23,7 @@ from qgis.core import (
     QgsFeatureRequest,
     QgsLayoutExporter,
     QgsLayoutItemLabel,
+    QgsLayoutItemLegend,
     QgsLayoutItemMap,
     QgsLayoutItemPicture,
     QgsLayoutItemShape,
@@ -51,6 +52,21 @@ from .models import (
     ReportConfig,
     TemplateConfig,
 )
+
+_TR = {
+    "es": {
+        "Source": "Fuente:",
+        "Date": "Fecha:",
+        "Legend": "Leyenda",
+        "Page": "Página",
+    },
+    "en": {
+        "Source": "Source:",
+        "Date": "Date:",
+        "Legend": "Legend",
+        "Page": "Page",
+    },
+}
 
 # ---------------------------------------------------------------------------
 # XYZ Tile URL registry  (verified from QuickMapServices / QGIS XYZ Tiles)
@@ -269,20 +285,58 @@ class ReportComposer:
         layout.initializeDefaults()
 
         page = layout.pageCollection().page(0)
-        pw = template.page_width_mm   # 297
-        ph = template.page_height_mm  # 210
+        # Determine layout mode
+        is_vertical = "Vertical" in config.template_name
+        pw = 210.0 if is_vertical else 297.0
+        ph = 297.0 if is_vertical else 210.0
+        
+        # Update template dimensions to match selection
+        template.page_width_mm = pw
+        template.page_height_mm = ph
         page.setPageSize(QgsLayoutSize(pw, ph))
 
+        # Localization helper
+        lang = config.language if config.language in _TR else "es"
+        tr = _TR[lang]
+
         # ══════════════════════════════════════════════════════════════
-        # 1. HEADER BAND
+        # 1. HEADER BAND & LOGO
         # ══════════════════════════════════════════════════════════════
         header_h = 28.0
         self._add_rect(layout, (0, 0, pw, header_h), header_color)
 
+        # Logo rendering
+        logo_margin = 4.0
+        logo_w = 0.0
+        if config.logo_path and os.path.exists(config.logo_path):
+            logo_w = 20.0  # max width
+            logo_h = 20.0  # max height
+            logo_y = (header_h - logo_h) / 2
+            
+            if config.logo_position == "Left":
+                logo_x = logo_margin
+                text_indent = logo_w + logo_margin * 2
+            else:
+                logo_x = pw - logo_w - logo_margin
+                text_indent = 0
+            
+            logo_item = QgsLayoutItemPicture(layout)
+            logo_item.setPicturePath(config.logo_path)
+            logo_item.setResizeMode(QgsLayoutItemPicture.Zoom)
+            logo_item.attemptMove(QgsLayoutPoint(logo_x, logo_y))
+            logo_item.attemptResize(QgsLayoutSize(logo_w, logo_h))
+            layout.addLayoutItem(logo_item)
+        else:
+            text_indent = 0
+
+        # Title & Subtitle (Adjust for Logo)
         title_text = config.custom_title or name
+        title_x = text_indent if config.logo_position == "Left" else 0
+        title_w = pw - text_indent - (logo_w + logo_margin * 2 if config.logo_position == "Right" else 0)
+        
         self._add_label(
             layout, title_text,
-            rect_mm=(0, 3, pw, 14),
+            rect_mm=(title_x, 3, title_w, 14),
             font_size=20, bold=True,
             halign=Qt.AlignCenter, valign=Qt.AlignVCenter,
             color=palette.get("title_color", "#FFFFFF"),
@@ -291,28 +345,52 @@ class ReportComposer:
         subtitle = config.variable_alias or primary_field
         self._add_label(
             layout, subtitle,
-            rect_mm=(0, 16, pw, 10),
+            rect_mm=(title_x, 16, title_w, 10),
             font_size=11, bold=False,
             halign=Qt.AlignCenter, valign=Qt.AlignVCenter,
             color=palette.get("subtitle_color", "#A8DADC"),
         )
 
         # ══════════════════════════════════════════════════════════════
-        # 2. MAP
+        # 2. MAP AREA CALCULATION
         # ══════════════════════════════════════════════════════════════
-        map_x, map_y = 8.0, header_h + 4
-        map_w = 225.0
         footer_h = 12.0
-        map_h = ph - map_y - footer_h - 4
+        margin = 8.0
+        
+        if is_vertical:
+            # Vertical: Map Top, Legend Bottom
+            map_x, map_y = margin, header_h + margin
+            map_w = pw - (margin * 2)
+            # Reserve space for legend/charts at bottom (e.g., 70mm)
+            legend_area_h = 70.0
+            map_h = ph - header_h - footer_h - legend_area_h - (margin * 2)
+        else:
+            # Landscape: Map Left, Legend Right
+            map_x, map_y = margin, header_h + 4
+            # Legend width fixed to ~65mm
+            legend_w = 65.0
+            map_w = pw - legend_w - (margin * 2) - 4
+            map_h = ph - map_y - footer_h - 4
 
         map_item = self._map_renderer._create_map_item(
             layout, (map_x, map_y, map_w, map_h)
         )
 
-        # ── Compute extent ──
-        extent_layer_crs = self._map_renderer._get_feature_extent(
-            layer, config.id_field, feature_id
-        )
+        # ── Compute extent based on FID (not expression) ──
+        # Use setFilterFid for robustness
+        # Note: _get_feature_extent expects (layer, id_field, feature_id)
+        # But we are moving to FIDs. For now, we adapt existing method or use new one.
+        # Since _get_feature_extent uses expression, we pass FID as feature_id and updated field
+        # or we just get geometry directly here.
+        
+        # Let's get geometry directly using FID
+        req = QgsFeatureRequest().setFilterFid(feature_id)
+        feat = next(layer.getFeatures(req), None)
+        if feat and feat.geometry():
+            extent_layer_crs = feat.geometry().boundingBox()
+        else:
+            extent_layer_crs = layer.extent()
+
         extent = self._transform_extent(
             extent_layer_crs, layer.crs(), self._project.crs()
         )
@@ -383,10 +461,21 @@ class ReportComposer:
         # ══════════════════════════════════════════════════════════════
         # 3. LEGEND
         # ══════════════════════════════════════════════════════════════
-        legend_x = map_x + map_w + 4
-        legend_y = map_y
-        legend_w = pw - legend_x - 4
-        legend_h = map_h
+        # ══════════════════════════════════════════════════════════════
+        # 3. LEGEND
+        # ══════════════════════════════════════════════════════════════
+        if is_vertical:
+            # Vertical: Legend at Bottom
+            legend_x = margin
+            legend_y = map_y + map_h + 4
+            legend_w = pw - (margin * 2)
+            legend_h = ph - legend_y - footer_h - 4
+        else:
+            # Landscape: Legend at Right
+            legend_x = map_x + map_w + 4
+            legend_y = map_y
+            legend_w = pw - legend_x - 4
+            legend_h = map_h
 
         self._add_rect(
             layout,
@@ -431,6 +520,7 @@ class ReportComposer:
         # 5b. OVERVIEW MAP (Inset)
         # ══════════════════════════════════════════════════════════════
         ov_highlight = None  # track for cleanup
+        _ov_label_layer = None  # track cloned label-toggled layer
         if config.show_overview_map:
             ov_size = 45.0
             ov_margin = 3.0
@@ -449,27 +539,32 @@ class ReportComposer:
                 layout, (ov_x, ov_y, ov_size, ov_size)
             )
 
-            # Zoom to feature extent with regional context buffer (2x)
-            feat_extent = None
+            # ── Compute regional extent (feature + 50% buffer) ──
+            feat_geom = None
             iterator = layer.getFeatures(QgsFeatureRequest().setFilterExpression(
                 self._map_renderer._build_filter_expression(feature_id, config.id_field)
             ))
             for feat in iterator:
-                if feat.geometry():
-                    feat_extent = feat.geometry().boundingBox()
+                if feat.geometry() and not feat.geometry().isEmpty():
+                    feat_geom = feat.geometry()
                     break
 
-            if feat_extent:
-                buf_w = feat_extent.width() * 2
-                buf_h = feat_extent.height() * 2
-                buffered = QgsRectangle(
-                    feat_extent.xMinimum() - buf_w,
-                    feat_extent.yMinimum() - buf_h,
-                    feat_extent.xMaximum() + buf_w,
-                    feat_extent.yMaximum() + buf_h,
+            if feat_geom:
+                bbox = feat_geom.boundingBox()
+                buf_w = bbox.width() * 1.0
+                buf_h = bbox.height() * 1.0
+                # Ensure minimum buffer so tiny features still have context
+                min_buf = max(bbox.width(), bbox.height(), 0.01) * 0.3
+                buf_w = max(buf_w, min_buf)
+                buf_h = max(buf_h, min_buf)
+                regional = QgsRectangle(
+                    bbox.xMinimum() - buf_w,
+                    bbox.yMinimum() - buf_h,
+                    bbox.xMaximum() + buf_w,
+                    bbox.yMaximum() + buf_h,
                 )
                 ov_extent = self._transform_extent(
-                    buffered, layer.crs(), self._project.crs()
+                    regional, layer.crs(), self._project.crs()
                 )
             else:
                 ov_extent = self._transform_extent(
@@ -478,27 +573,67 @@ class ReportComposer:
 
             ov_map.zoomToExtent(ov_extent)
 
-            # Build inset layers: highlight (red) + main layer
-            ov_highlight = None
-            if highlight_layer:
-                # Create a red version for overview visibility
-                iterator = layer.getFeatures(QgsFeatureRequest().setFilterExpression(
-                    self._map_renderer._build_filter_expression(feature_id, config.id_field)
-                ))
-                for feat in iterator:
-                    if feat.geometry():
-                        ov_highlight = self._map_renderer.create_highlight_overlay(
-                            feat.geometry(), layer.crs(),
-                            color="#FF0000", width=1.2,
-                        )
-                        if ov_highlight:
-                            self._project.addMapLayer(ov_highlight, False)
-                        break
+            # ── Highlight: polygon fill vs bbox for lines/points ──
+            from qgis.core import (
+                QgsFeature, QgsFillSymbol, QgsVectorLayer as QgsVL, QgsWkbTypes,
+            )
 
+            if feat_geom:
+                geom_type = QgsWkbTypes.geometryType(feat_geom.wkbType())
+
+                if geom_type == QgsWkbTypes.PolygonGeometry:
+                    # Red fill with 40% opacity for polygons
+                    is_multi = QgsWkbTypes.isMultiType(feat_geom.wkbType())
+                    uri_type = "MultiPolygon" if is_multi else "Polygon"
+                    uri = f"{uri_type}?crs={layer.crs().authid()}"
+                    ov_highlight = QgsVL(uri, "OverviewHighlight", "memory")
+                    if ov_highlight.isValid():
+                        prov = ov_highlight.dataProvider()
+                        f = QgsFeature()
+                        f.setGeometry(feat_geom)
+                        prov.addFeatures([f])
+                        ov_highlight.updateExtents()
+                        sym = QgsFillSymbol.createSimple({
+                            "color": "255,0,0,100",  # red with ~40% opacity
+                            "outline_color": "#FF0000",
+                            "outline_style": "solid",
+                            "outline_width": "0.8",
+                        })
+                        ov_highlight.renderer().setSymbol(sym)
+                        self._project.addMapLayer(ov_highlight, False)
+                else:
+                    # For lines/points: red translucent bounding box
+                    bbox_geom = feat_geom.boundingBox()
+                    from qgis.core import QgsGeometry
+                    rect_geom = QgsGeometry.fromRect(bbox_geom)
+                    uri = f"Polygon?crs={layer.crs().authid()}"
+                    ov_highlight = QgsVL(uri, "OverviewHighlight", "memory")
+                    if ov_highlight.isValid():
+                        prov = ov_highlight.dataProvider()
+                        f = QgsFeature()
+                        f.setGeometry(rect_geom)
+                        prov.addFeatures([f])
+                        ov_highlight.updateExtents()
+                        sym = QgsFillSymbol.createSimple({
+                            "color": "255,0,0,60",  # red with ~25% opacity
+                            "outline_color": "#FF0000",
+                            "outline_style": "dash",
+                            "outline_width": "0.6",
+                        })
+                        ov_highlight.renderer().setSymbol(sym)
+                        self._project.addMapLayer(ov_highlight, False)
+
+            # ── Build layer stack for overview ──
             ov_layers = []
-            if ov_highlight:
+            if ov_highlight and ov_highlight.isValid():
                 ov_layers.append(ov_highlight)
-            ov_layers.append(layer)
+
+            # Clone main layer to toggle labels independently
+            _ov_label_layer = layer.clone()
+            _ov_label_layer.setLabelsEnabled(config.show_overview_labels)
+            self._project.addMapLayer(_ov_label_layer, False)
+            ov_layers.append(_ov_label_layer)
+
             if base_layer and base_layer.isValid():
                 ov_layers.append(base_layer)
 
@@ -520,7 +655,7 @@ class ReportComposer:
             layout, (0, footer_y, pw, footer_h), footer_color,
         )
         date_str = datetime.now().strftime("%Y-%m-%d")
-        footer_text = config.custom_footer or f"AutoAtlas Pro  •  {date_str}  •  {subtitle}"
+        footer_text = config.custom_footer or f"AutoAtlas Pro  •  {tr['Date']} {date_str}  •  {subtitle}"
         self._add_label(
             layout,
             footer_text,
@@ -540,6 +675,8 @@ class ReportComposer:
             self._project.removeMapLayer(highlight_layer.id())
         if ov_highlight:
             self._project.removeMapLayer(ov_highlight.id())
+        if _ov_label_layer:
+            self._project.removeMapLayer(_ov_label_layer.id())
 
         # Restore original names and opacity for context layers
         for lyr, orig_name, orig_opacity in _ctx_originals:

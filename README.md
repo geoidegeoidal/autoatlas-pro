@@ -23,14 +23,15 @@ Perfect for:
 | Feature | Description |
 |---------|-------------|
 | **3-Step Wizard** | Intuitive guided workflow: Data → Style → Generate |
-| **Choropleth Maps** | Graduated color maps with automatic legend, scale bar, and title |
+| **Smart Highlighting** | Automatically highlights the analyzed feature with a dashed outline against the context |
+| **Context Layers** | Overlay additional reference layers (roads, rivers) with custom opacity and ordering |
+| **Flexible Layouts** | Support for **A4 Vertical** and **A4 Landscape** orientations |
+| **Custom Branding** | Add your organization's **Logo**, custom title, and footer text |
+| **Bilingual UI** | Instant switching between **English** and **Spanish** |
 | **Statistical Charts** | Distribution histogram, ranking lollipop, proportion donut, summary table |
-| **Dual Chart Backend** | Premium Plotly charts when available, reliable matplotlib fallback |
 | **Batch Generation** | Generate reports for all territorial units in one click |
-| **Templates** | Institutional, Academic, and Minimal pre-built layouts |
 | **PDF & PNG Export** | Configurable DPI (72–1200) |
-| **Bilingual UI** | English and Spanish with auto-detection |
-| **Dependency Installer** | Built-in one-click installer for optional packages |
+| **Dependency Installer** | Built-in one-click installer for optional packages (pandas, plotly) |
 
 ## 📦 Installation
 
@@ -61,9 +62,13 @@ AutoAtlas Pro works out of the box with matplotlib (bundled with QGIS). For prem
 
 1. **Load** a vector layer with polygon geometries (e.g., communes, districts)
 2. **Open** AutoAtlas Pro from the Plugins menu or toolbar
-3. **Step 1**: Select your layer, ID field, name field, and indicator fields
-4. **Step 2**: Choose map style, color ramp, charts, and template
-5. **Step 3**: Set output format (PDF/PNG), DPI, and destination folder
+3. **Step 1 (Data)**: Select your coverage layer, ID field, and indicator fields.
+4. **Step 2 (Style)**: 
+    - Configure the **Language** (ES/EN) and **Template** (Vertical/Horizontal).
+    - Add your **Logo** and custom titles.
+    - Set up **Context Layers** to provide geographical reference.
+    - Customize map style/colors.
+5. **Step 3 (Output)**: Set output format (PDF/PNG), DPI, and destination folder.
 6. **Click Generate** — your reports are ready!
 
 ## 🏗️ Architecture

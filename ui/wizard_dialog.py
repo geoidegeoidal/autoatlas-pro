@@ -62,7 +62,93 @@ if TYPE_CHECKING:
         QgsFieldComboBox,
         QgsMapLayerComboBox,
         QgsOpacityWidget,
+        QgsVectorLayer,
     )
+
+TRANS_UI = {
+    "es": {
+        "title": "Asistente AutoAtlas Pro",
+        "step1_title": "Configuración de Datos",
+        "step1_desc": "Selecciona la capa vectorial y los campos para generar el reporte.",
+        "grp_layer": "Capa de Cobertura",
+        "layer": "Capa Vectorial:",
+        "grp_fields": "Campos",
+        "id_field": "Campo ID (Iterador):",
+        "name_field": "Campo Nombre (Título):",
+        "indicators": "Indicadores Estadísticos:",
+        "step2_title": "Configuración de Estilo",
+        "step2_desc": "Define la apariencia de mapas y gráficos.",
+        "grp_gen": "Configuración General",
+        "language": "Idioma:",
+        "template": "Plantilla:",
+        "logo": "Logotipo:",
+        "grp_map": "Estilo del Mapa",
+        "style": "Estilo:",
+        "ramp": "Rampa de Color:",
+        "opacity": "Opacidad (%):",
+        "highlight": "Resaltar elemento analizado",
+        "labels": "Etiquetas:",
+        "basemap": "Mapa Base:",
+        "grp_ctx": "Capas de Contexto",
+        "overview": "Incluir mapa de contexto (inset)",
+        "overview_labels": "Mostrar etiquetas en overview",
+        "grp_legend": "Configuración de Leyenda",
+        "legend_title": "Título de Leyenda:",
+        "layer_alias": "Alias de Capa Análisis:",
+        "step3_title": "Configuración de Salida",
+        "step3_desc": "Elige formato y destino.",
+        "grp_format": "Formato de Salida",
+        "grp_dir": "Directorio de Salida",
+        "browse": "Examinar...",
+        "next": "Siguiente >",
+        "back": "< Atrás",
+        "generate": "Generar Reportes",
+        "cancel": "Cancelar",
+        "close": "Cerrar",
+        "preview": "Actualizar Vista Previa",
+    },
+    "en": {
+        "title": "AutoAtlas Pro Wizard",
+        "step1_title": "Data Configuration",
+        "step1_desc": "Select vector layer and fields for the report.",
+        "grp_layer": "Coverage Layer",
+        "layer": "Vector Layer:",
+        "grp_fields": "Fields",
+        "id_field": "ID Field (Iterator):",
+        "name_field": "Name Field (Title):",
+        "indicators": "Statistical Indicators:",
+        "step2_title": "Style Configuration",
+        "step2_desc": "Define appearance for maps and charts.",
+        "grp_gen": "General Settings",
+        "language": "Language:",
+        "template": "Template:",
+        "logo": "Logo:",
+        "grp_map": "Map Styling",
+        "style": "Style:",
+        "ramp": "Color Ramp:",
+        "opacity": "Opacity (%):",
+        "highlight": "Highlight analyzed feature",
+        "labels": "Labels:",
+        "basemap": "Base Map:",
+        "grp_ctx": "Context Layers",
+        "overview": "Include overview map (inset)",
+        "overview_labels": "Show labels on overview",
+        "grp_legend": "Legend Settings",
+        "legend_title": "Legend Title:",
+        "layer_alias": "Analysis Layer Alias:",
+        "step3_title": "Output Configuration",
+        "step3_desc": "Choose format and destination.",
+        "grp_format": "Output Format",
+        "grp_dir": "Output Directory",
+        "browse": "Browse...",
+        "next": "Next >",
+        "back": "< Back",
+        "generate": "Generate Reports",
+        "cancel": "Cancel",
+        "close": "Close",
+        "preview": "Refresh Preview",
+    }
+}
 
 from ..core.models import (
     BaseMapType, ChartType, ContextLayerConfig, MapStyle, OutputFormat, ReportConfig,
@@ -113,6 +199,9 @@ class WizardDialog(QDialog):
         # --- Footer with navigation buttons ---
         footer = self._build_footer()
         root.addWidget(footer)
+        
+        # Initial UI text update (defaults to Spanish)
+        self._update_ui_text()
 
     # ------------------------------------------------------------------
     # Header (step indicator)
@@ -172,42 +261,57 @@ class WizardDialog(QDialog):
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(16)
 
-        layout.addWidget(QLabel(
+        self._lbl_step1_title = QLabel(
             f"<h3>{self.tr('Select Data Source')}</h3>"
             f"<p>{self.tr('Choose the vector layer and fields for your report.')}</p>"
-        ))
+        )
+        layout.addWidget(self._lbl_step1_title)
 
         # Layer selection
-        grp_layer = QGroupBox(self.tr("Coverage Layer"))
-        grp_layout = QVBoxLayout(grp_layer)
+        self._grp_layer = QGroupBox(self.tr("Coverage Layer"))
+        grp_layout = QVBoxLayout(self._grp_layer)
 
         from qgis.gui import QgsMapLayerComboBox
         self._layer_combo = QgsMapLayerComboBox()
-        self._layer_combo.setFilters(QgsMapLayerProxyModel.PolygonLayer)
+        self._layer_combo.setFilters(
+            QgsMapLayerProxyModel.PolygonLayer |
+            QgsMapLayerProxyModel.PointLayer |
+            QgsMapLayerProxyModel.LineLayer
+        )
         self._layer_combo.layerChanged.connect(self._on_layer_changed)
         grp_layout.addWidget(self._layer_combo)
         layout.addWidget(grp_layer)
 
         # Fields
-        grp_fields = QGroupBox(self.tr("Fields"))
-        fields_layout = QVBoxLayout(grp_fields)
+        self._grp_fields = QGroupBox(self.tr("Fields"))
+        fields_layout = QVBoxLayout(self._grp_fields)
 
         # ID field
         row_id = QHBoxLayout()
-        row_id.addWidget(QLabel(self.tr("ID Field:")))
+        self._lbl_id = QLabel(self.tr("Unique Identifier (ID):"))
+        self._lbl_id.setToolTip(self.tr(
+            "Select the field that uniquely identifies each feature.\n"
+            "This field is used to split the layer into individual reports."
+        ))
+        row_id.addWidget(self._lbl_id)
         self._id_field_combo = QComboBox()
+        self._id_field_combo.setToolTip(self.tr(
+            "This field drives the iteration. One report will be generated per unique value."
+        ))
         row_id.addWidget(self._id_field_combo, stretch=1)
         fields_layout.addLayout(row_id)
 
         # Name field
         row_name = QHBoxLayout()
-        row_name.addWidget(QLabel(self.tr("Name Field:")))
+        self._lbl_name = QLabel(self.tr("Name Field:"))
+        row_name.addWidget(self._lbl_name)
         self._name_field_combo = QComboBox()
         row_name.addWidget(self._name_field_combo, stretch=1)
         fields_layout.addLayout(row_name)
 
         # Indicator fields (multi-select)
-        fields_layout.addWidget(QLabel(self.tr("Indicator Fields (select one or more):")))
+        self._lbl_indicators = QLabel(self.tr("Indicator Fields (select one or more):"))
+        fields_layout.addWidget(self._lbl_indicators)
         self._indicator_list = QListWidget()
         self._indicator_list.setSelectionMode(QListWidget.MultiSelection)
         self._indicator_list.setMaximumHeight(150)
@@ -255,7 +359,6 @@ class WizardDialog(QDialog):
         page = QWidget()
         layout = QVBoxLayout(page)
         
-        # Use a scroll area because we have many options now
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
@@ -264,24 +367,71 @@ class WizardDialog(QDialog):
         scroll_layout.setContentsMargins(24, 24, 24, 24)
         scroll_layout.setSpacing(16)
         
-        scroll_layout.addWidget(QLabel(
+        self._lbl_step2_title = QLabel(
             f"<h3>{self.tr('Configure Style')}</h3>"
             f"<p>{self.tr('Choose how your maps and charts will look.')}</p>"
-        ))
+        )
+        scroll_layout.addWidget(self._lbl_step2_title)
+
+        # 0. General Settings (Group)
+        self._grp_gen = QGroupBox(self.tr("General Report Settings"))
+        gen_layout = QVBoxLayout(self._grp_gen)
+
+        # Row 1: Language & Template
+        row_lt = QHBoxLayout()
+        self._lbl_lang = QLabel(self.tr("Language:"))
+        row_lt.addWidget(self._lbl_lang)
+        self._lang_combo = QComboBox()
+        self._lang_combo.addItems(["es", "en"])
+        self._lang_combo.setToolTip(self.tr("Language for report text (Source, Date, etc.)"))
+        self._lang_combo.currentTextChanged.connect(self._on_language_changed)
+        row_lt.addWidget(self._lang_combo)
+
+        self._lbl_template = QLabel(self.tr("Template:"))
+        row_lt.addWidget(self._lbl_template)
+        self._template_combo = QComboBox()
+        self._template_combo.addItems(["A4 Landscape", "A4 Vertical"])
+        self._template_combo.setToolTip(self.tr("Page layout orientation"))
+        row_lt.addWidget(self._template_combo)
+        gen_layout.addLayout(row_lt)
+
+        # Row 2: Logo
+        row_logo = QHBoxLayout()
+        self._lbl_logo = QLabel(self.tr("Logo:"))
+        row_logo.addWidget(self._lbl_logo)
+        self._logo_path_edit = QLineEdit()
+        self._logo_path_edit.setPlaceholderText(self.tr("Select image (PNG/SVG)..."))
+        row_logo.addWidget(self._logo_path_edit)
+
+        btn_logo = QPushButton("...")
+        btn_logo.clicked.connect(self._select_logo)
+        btn_logo.setFixedWidth(30)
+        row_logo.addWidget(btn_logo)
+
+        self._logo_pos_combo = QComboBox()
+        self._logo_pos_combo.addItems(["Right", "Left"])
+        self._logo_pos_combo.setToolTip(self.tr("Logo position in header"))
+        row_logo.addWidget(self._logo_pos_combo)
+        gen_layout.addLayout(row_logo)
+
+        scroll_layout.addWidget(self._grp_gen)
 
         # 1. Map Styling (Group)
-        grp_map = QGroupBox(self.tr("Map Styling"))
-        map_layout = QVBoxLayout(grp_map)
+        # 1. Map Styling (Group)
+        self._grp_map = QGroupBox(self.tr("Map Styling"))
+        map_layout = QVBoxLayout(self._grp_map)
         
         # Row 1: Style & Ramp
         row1 = QHBoxLayout()
-        row1.addWidget(QLabel(self.tr("Style:")))
+        self._lbl_style = QLabel(self.tr("Style:"))
+        row1.addWidget(self._lbl_style)
         self._style_combo = QComboBox()
         for s in MapStyle:
             self._style_combo.addItem(s.value, s)
         row1.addWidget(self._style_combo)
         
-        row1.addWidget(QLabel(self.tr("Ramp:")))
+        self._lbl_ramp = QLabel(self.tr("Ramp:"))
+        row1.addWidget(self._lbl_ramp)
         self._ramp_combo = QComboBox()
         self._ramp_combo.addItems(["Spectral", "Viridis", "Plasma", "Blues", "Reds", "Greens", "Magma", "Inferno"])
         row1.addWidget(self._ramp_combo)
@@ -289,7 +439,8 @@ class WizardDialog(QDialog):
 
         # Row 2: Opacity & Highlight
         row2 = QHBoxLayout()
-        row2.addWidget(QLabel(self.tr("Opacity:")))
+        self._lbl_opacity = QLabel(self.tr("Opacity:"))
+        row2.addWidget(self._lbl_opacity)
         self._opacity_widget = QgsOpacityWidget()
         self._opacity_widget.setOpacity(0.6)
         row2.addWidget(self._opacity_widget)
@@ -312,18 +463,19 @@ class WizardDialog(QDialog):
 
         # Row 4: Base Map
         row4 = QHBoxLayout()
-        row4.addWidget(QLabel(self.tr("Base Map:")))
+        self._lbl_basemap = QLabel(self.tr("Base Map:"))
+        row4.addWidget(self._lbl_basemap)
         self._basemap_combo = QComboBox()
         for bm in BaseMapType:
             self._basemap_combo.addItem(bm.value, bm)
         row4.addWidget(self._basemap_combo)
         map_layout.addLayout(row4)
 
-        scroll_layout.addWidget(grp_map)
+        scroll_layout.addWidget(self._grp_map)
 
         # 2. Context Layers (Group) — Table with opacity and alias per layer
-        grp_ctx = QGroupBox(self.tr("Context Layers"))
-        ctx_layout = QVBoxLayout(grp_ctx)
+        self._grp_ctx = QGroupBox(self.tr("Context Layers"))
+        ctx_layout = QVBoxLayout(self._grp_ctx)
         self._ctx_table = QTableWidget(0, 4)
         self._ctx_table.setHorizontalHeaderLabels([
             self.tr("✓"), self.tr("Layer"),
@@ -336,23 +488,53 @@ class WizardDialog(QDialog):
         hdr.setSectionResizeMode(3, QHeaderView.ResizeToContents)
         self._ctx_table.setFixedHeight(120)
         self._ctx_table.verticalHeader().setVisible(False)
-        ctx_layout.addWidget(self._ctx_table)
+        self._ctx_table.setDragDropMode(QTableWidget.NoDragDrop)
+
+        # Table + reorder buttons side by side
+        ctx_row = QHBoxLayout()
+        ctx_row.addWidget(self._ctx_table)
+
+        btn_col = QVBoxLayout()
+        btn_col.addStretch()
+        self._btn_ctx_up = QPushButton("▲")
+        self._btn_ctx_up.setFixedSize(28, 28)
+        self._btn_ctx_up.setToolTip(self.tr("Move selected layer up"))
+        self._btn_ctx_up.clicked.connect(lambda: self._move_ctx_row(-1))
+        btn_col.addWidget(self._btn_ctx_up)
+
+        self._btn_ctx_down = QPushButton("▼")
+        self._btn_ctx_down.setFixedSize(28, 28)
+        self._btn_ctx_down.setToolTip(self.tr("Move selected layer down"))
+        self._btn_ctx_down.clicked.connect(lambda: self._move_ctx_row(1))
+        btn_col.addWidget(self._btn_ctx_down)
+        btn_col.addStretch()
+
+        ctx_row.addLayout(btn_col)
+        ctx_layout.addLayout(ctx_row)
 
         # Overview Map checkbox
         self._chk_overview = QCheckBox(self.tr("Include overview map (inset)"))
         self._chk_overview.setToolTip(self.tr(
-            "Show a small map in the corner with the full layer extent"
+            "Show a small regional map with the feature highlighted"
         ))
         ctx_layout.addWidget(self._chk_overview)
-        scroll_layout.addWidget(grp_ctx)
+
+        self._chk_overview_labels = QCheckBox(self.tr("Show labels on overview map"))
+        self._chk_overview_labels.setChecked(False)
+        self._chk_overview_labels.setToolTip(self.tr(
+            "Enable or disable labels on the overview inset map"
+        ))
+        ctx_layout.addWidget(self._chk_overview_labels)
+        scroll_layout.addWidget(self._grp_ctx)
 
         # 3. Legend Settings (Group)
-        grp_legend = QGroupBox(self.tr("Legend Settings"))
-        legend_layout = QVBoxLayout(grp_legend)
+        self._grp_legend = QGroupBox(self.tr("Legend Settings"))
+        legend_layout = QVBoxLayout(self._grp_legend)
 
         # Legend Title
         row_alias = QHBoxLayout()
-        row_alias.addWidget(QLabel(self.tr("Legend Title:")))
+        self._lbl_legend_title = QLabel(self.tr("Legend Title:"))
+        row_alias.addWidget(self._lbl_legend_title)
         self._alias_edit = QLineEdit()
         self._alias_edit.setPlaceholderText(self.tr("e.g. Total Population 2024"))
         row_alias.addWidget(self._alias_edit)
@@ -360,13 +542,14 @@ class WizardDialog(QDialog):
 
         # Analysis Layer Name in Legend
         row_lyr_alias = QHBoxLayout()
-        row_lyr_alias.addWidget(QLabel(self.tr("Analysis Layer Name:")))
+        self._lbl_layer_alias = QLabel(self.tr("Analysis Layer Name:"))
+        row_lyr_alias.addWidget(self._lbl_layer_alias)
         self._layer_alias_edit = QLineEdit()
         self._layer_alias_edit.setPlaceholderText(self.tr("e.g. Communes"))
         row_lyr_alias.addWidget(self._layer_alias_edit)
         legend_layout.addLayout(row_lyr_alias)
 
-        scroll_layout.addWidget(grp_legend)
+        scroll_layout.addWidget(self._grp_legend)
 
         # 4. Layout Customization (Group)
         grp_layout = QGroupBox(self.tr("Layout Settings"))
@@ -403,22 +586,7 @@ class WizardDialog(QDialog):
 
         scroll_layout.addWidget(grp_layout)
         
-        # 4. Template (renamed from Charts & Template)
-        grp_charts = QGroupBox(self.tr("Template"))
-        chart_layout = QVBoxLayout(grp_charts)
-        
-        # Template
-        chart_layout.addWidget(QLabel(self.tr("Select Layout Template:")))
-        self._template_combo = QComboBox()
-        self._template_combo.addItems([
-            self.tr("Default (A4 Landscape)"),
-            self.tr("Institutional"),
-            self.tr("Academic"),
-            self.tr("Minimal"),
-        ])
-        chart_layout.addWidget(self._template_combo)
 
-        scroll_layout.addWidget(grp_charts)
 
         scroll.setWidget(content)
         layout.addWidget(scroll)
@@ -440,14 +608,15 @@ class WizardDialog(QDialog):
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(16)
 
-        layout.addWidget(QLabel(
+        self._lbl_step3_title = QLabel(
             f"<h3>{self.tr('Configure Output')}</h3>"
             f"<p>{self.tr('Choose format and destination for your reports.')}</p>"
-        ))
+        )
+        layout.addWidget(self._lbl_step3_title)
 
         # Format
-        grp_format = QGroupBox(self.tr("Output Format"))
-        fmt_layout = QVBoxLayout(grp_format)
+        self._grp_format = QGroupBox(self.tr("Output Format"))
+        fmt_layout = QVBoxLayout(self._grp_format)
         self._radio_pdf = QRadioButton("PDF")
         self._radio_pdf.setChecked(True)
         self._radio_png = QRadioButton("PNG")
@@ -463,18 +632,18 @@ class WizardDialog(QDialog):
         dpi_layout.addWidget(self._dpi_spin)
         fmt_layout.addLayout(dpi_layout)
         
-        layout.addWidget(grp_format)
+        layout.addWidget(self._grp_format)
 
         # Directory
-        grp_dir = QGroupBox(self.tr("Output Directory"))
-        dir_layout = QHBoxLayout(grp_dir)
+        self._grp_dir = QGroupBox(self.tr("Output Directory"))
+        dir_layout = QHBoxLayout(self._grp_dir)
         self._dir_edit = QLineEdit()
         self._dir_edit.setText(str(Path.home() / "AutoAtlas_Output"))
         dir_layout.addWidget(self._dir_edit, stretch=1)
-        browse_btn = QPushButton(self.tr("Browse..."))
-        browse_btn.clicked.connect(self._browse_output_dir)
-        dir_layout.addWidget(browse_btn)
-        layout.addWidget(grp_dir)
+        self._btn_browse = QPushButton(self.tr("Browse..."))
+        self._btn_browse.clicked.connect(self._browse_output_dir)
+        dir_layout.addWidget(self._btn_browse)
+        layout.addWidget(self._grp_dir)
 
         # Progress (shown during generation)
         self._progress_bar = QProgressBar()
@@ -537,6 +706,122 @@ class WizardDialog(QDialog):
     # Navigation
     # ------------------------------------------------------------------
 
+    def _select_logo(self) -> None:
+        """Open file dialog to select a logo image."""
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            self.tr("Select Logo Image"),
+            "",
+            self.tr("Images (*.png *.svg *.jpg *.jpeg);;All Files (*)")
+        )
+        if path:
+            self._logo_path_edit.setText(path)
+
+    def _on_language_changed(self, text: str) -> None:
+        """Update UI text when language changes."""
+        self._update_ui_text()
+
+    def _update_ui_text(self) -> None:
+        """Update all UI labels based on selected language."""
+        if not hasattr(self, "_lang_combo"):
+            return
+            
+        lang = self._lang_combo.currentText()
+        if lang not in TRANS_UI:
+            lang = "es"
+        tr = TRANS_UI[lang]
+        
+        self.setWindowTitle(tr["title"])
+        
+        # Navigation
+        if hasattr(self, "_btn_back"):
+            self._btn_back.setText(tr["back"])
+        
+        if hasattr(self, "_btn_next"):
+            is_last = self._stack.currentIndex() == self._stack.count() - 1
+            if is_last:
+                self._btn_next.setText(tr["generate"])
+            else:
+                self._btn_next.setText(tr["next"])
+        
+        if hasattr(self, "_btn_cancel"):
+             self._btn_cancel.setText(tr["cancel"])
+
+        # Step 1
+        if hasattr(self, "_lbl_step1_title"): self._lbl_step1_title.setText(f"<h3>{tr['step1_title']}</h3><p>{tr['step1_desc']}</p>")
+        if hasattr(self, "_grp_layer"): self._grp_layer.setTitle(tr["grp_layer"])
+        if hasattr(self, "_lbl_layer"): self._lbl_layer.setText(tr["layer"])
+        if hasattr(self, "_grp_fields"): self._grp_fields.setTitle(tr["grp_fields"])
+        if hasattr(self, "_lbl_id"): self._lbl_id.setText(tr["id_field"])
+        if hasattr(self, "_lbl_name"): self._lbl_name.setText(tr["name_field"])
+        if hasattr(self, "_grp_indicators"): self._grp_indicators.setTitle(tr["indicators"])
+        
+        # Step 2
+        if hasattr(self, "_lbl_step2_title"): self._lbl_step2_title.setText(f"<h3>{tr['step2_title']}</h3><p>{tr['step2_desc']}</p>")
+        if hasattr(self, "_grp_gen"): self._grp_gen.setTitle(tr["grp_gen"])
+        if hasattr(self, "_lbl_lang"): self._lbl_lang.setText(tr["language"])
+        if hasattr(self, "_lbl_template"): self._lbl_template.setText(tr["template"])
+        if hasattr(self, "_lbl_logo"): self._lbl_logo.setText(tr["logo"])
+        if hasattr(self, "_grp_map"): self._grp_map.setTitle(tr["grp_map"])
+        if hasattr(self, "_lbl_style"): self._lbl_style.setText(tr["style"])
+        if hasattr(self, "_lbl_ramp"): self._lbl_ramp.setText(tr["ramp"])
+        if hasattr(self, "_chk_highlight"): self._chk_highlight.setText(tr["highlight"])
+        if hasattr(self, "_chk_labels"): self._chk_labels.setText(tr["labels"])
+        if hasattr(self, "_lbl_basemap"): self._lbl_basemap.setText(tr["basemap"])
+        if hasattr(self, "_grp_ctx"): self._grp_ctx.setTitle(tr["grp_ctx"])
+        if hasattr(self, "_chk_overview"): self._chk_overview.setText(tr["overview"])
+        if hasattr(self, "_chk_overview_labels"): self._chk_overview_labels.setText(tr["overview_labels"])
+        if hasattr(self, "_grp_legend"): self._grp_legend.setTitle(tr["grp_legend"])
+        if hasattr(self, "_lbl_legend_title"): self._lbl_legend_title.setText(tr["legend_title"])
+        if hasattr(self, "_lbl_layer_alias"): self._lbl_layer_alias.setText(tr["layer_alias"])
+        
+        # Step 3
+        if hasattr(self, "_lbl_step3_title"): self._lbl_step3_title.setText(f"<h3>{tr['step3_title']}</h3><p>{tr['step3_desc']}</p>")
+        if hasattr(self, "_grp_format"): self._grp_format.setTitle(tr["grp_format"])
+        if hasattr(self, "_grp_dir"): self._grp_dir.setTitle(tr["grp_dir"])
+        if hasattr(self, "_btn_browse"): self._btn_browse.setText(tr["browse"])
+
+        if hasattr(self, "_btn_preview"): self._btn_preview.setText(tr["preview"])
+
+    # ------------------------------------------------------------------
+    # Context Layer Reorder
+    # ------------------------------------------------------------------
+
+    def _move_ctx_row(self, direction: int) -> None:
+        """Move the selected context layer row up (-1) or down (+1)."""
+        row = self._ctx_table.currentRow()
+        if row < 0:
+            return
+        target = row + direction
+        if target < 0 or target >= self._ctx_table.rowCount():
+            return
+
+        # Swap all column data between row and target
+        for col in range(self._ctx_table.columnCount()):
+            widget_a = self._ctx_table.cellWidget(row, col)
+            widget_b = self._ctx_table.cellWidget(target, col)
+
+            if widget_a or widget_b:
+                # Spinbox column — swap values
+                val_a = widget_a.value() if widget_a else 1.0
+                val_b = widget_b.value() if widget_b else 1.0
+                if widget_a:
+                    widget_a.setValue(val_b)
+                if widget_b:
+                    widget_b.setValue(val_a)
+            else:
+                # QTableWidgetItem columns — swap items
+                item_a = self._ctx_table.takeItem(row, col)
+                item_b = self._ctx_table.takeItem(target, col)
+                self._ctx_table.setItem(row, col, item_b)
+                self._ctx_table.setItem(target, col, item_a)
+
+        self._ctx_table.setCurrentCell(target, 0)
+
+    # ------------------------------------------------------------------
+    # Navigation
+    # ------------------------------------------------------------------
+
     def _go_next(self) -> None:
         if self._current_step == 0:
             if not self._validate_step_data():
@@ -592,10 +877,8 @@ class WizardDialog(QDialog):
         self._stack.setCurrentIndex(self._current_step)
         self._btn_back.setEnabled(True)
 
-        if self._current_step == 2:
-            self._btn_next.setText(self.tr("🚀 Generate"))
-
         self._update_step_indicator()
+        self._update_ui_text()
 
     def _go_back(self) -> None:
         if self._current_step <= 0:
@@ -604,8 +887,8 @@ class WizardDialog(QDialog):
         self._current_step -= 1
         self._stack.setCurrentIndex(self._current_step)
         self._btn_back.setEnabled(self._current_step > 0)
-        self._btn_next.setText(self.tr("Next →"))
         self._update_step_indicator()
+        self._update_ui_text()
 
     # ------------------------------------------------------------------
     # Validation
@@ -674,6 +957,7 @@ class WizardDialog(QDialog):
                 )
 
         show_overview_map = self._chk_overview.isChecked()
+        show_overview_labels = self._chk_overview_labels.isChecked()
         layer_legend_alias = self._layer_alias_edit.text().strip()
 
         # Layout settings
@@ -681,6 +965,12 @@ class WizardDialog(QDialog):
         custom_footer = self._footer_edit.text()
         header_color = self._col_header.color().name()
         footer_color = self._col_footer.color().name()
+
+        # General Settings
+        language = self._lang_combo.currentText()
+        template_name = self._template_combo.currentText()
+        logo_path = self._logo_path_edit.text().strip()
+        logo_pos = self._logo_pos_combo.currentText()
         variable_alias = self._alias_edit.text().strip()
 
         # Charts (removed in Phase 9)
@@ -707,11 +997,16 @@ class WizardDialog(QDialog):
             label_field=label_field,
             context_layers_config=context_configs,
             show_overview_map=show_overview_map,
+            show_overview_labels=show_overview_labels,
             layer_legend_alias=layer_legend_alias,
             custom_title=custom_title,
             custom_footer=custom_footer,
             header_color=header_color,
             footer_color=footer_color,
+            language=language,
+            template_name=template_name,
+            logo_path=logo_path,
+            logo_position=logo_pos,
             variable_alias=variable_alias,
         )
 

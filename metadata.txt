@@ -5,6 +5,7 @@ description=Automated cartographic report generator. Create multi-page atlas rep
 version=0.1.0
 author=AutoAtlas Team
 email=autoatlas.pro@gmail.com
+license=GNU General Public License v3.0
 
 about=AutoAtlas Pro automates the generation of professional cartographic reports combining thematic maps, statistical charts, and summary tables. Perfect for census data, demographic analysis, municipal reports, and academic research. Supports batch generation across all territorial units with customizable templates.
 
