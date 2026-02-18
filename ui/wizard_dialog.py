@@ -277,6 +277,18 @@ class WizardDialog(QDialog):
         )
         layout.addWidget(self._lbl_step1_title)
 
+        # Language Selection
+        row_lang = QHBoxLayout()
+        self._lbl_lang = QLabel(self.tr("Language:"))
+        row_lang.addWidget(self._lbl_lang)
+        self._lang_combo = QComboBox()
+        self._lang_combo.addItems(["es", "en"])
+        self._lang_combo.setToolTip(self.tr("Select interface and report language"))
+        self._lang_combo.currentTextChanged.connect(self._on_language_changed)
+        row_lang.addWidget(self._lang_combo)
+        row_lang.addStretch()
+        layout.addLayout(row_lang)
+
         # Layer selection
         self._grp_layer = QGroupBox(self.tr("Coverage Layer"))
         grp_layout = QVBoxLayout(self._grp_layer)
@@ -387,15 +399,8 @@ class WizardDialog(QDialog):
         self._grp_gen = QGroupBox(self.tr("General Report Settings"))
         gen_layout = QVBoxLayout(self._grp_gen)
 
-        # Row 1: Language & Template
+        # Row 1: Template
         row_lt = QHBoxLayout()
-        self._lbl_lang = QLabel(self.tr("Language:"))
-        row_lt.addWidget(self._lbl_lang)
-        self._lang_combo = QComboBox()
-        self._lang_combo.addItems(["es", "en"])
-        self._lang_combo.setToolTip(self.tr("Language for report text (Source, Date, etc.)"))
-        self._lang_combo.currentTextChanged.connect(self._on_language_changed)
-        row_lt.addWidget(self._lang_combo)
 
         self._lbl_template = QLabel(self.tr("Template:"))
         row_lt.addWidget(self._lbl_template)
