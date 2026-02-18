@@ -150,6 +150,21 @@ class FeatureContext:
 
 
 @dataclass
+class ContextLayerConfig:
+    """Configuration for a single context layer.
+
+    Attributes:
+        layer_id: QGIS layer ID.
+        legend_alias: Custom name shown in the legend (empty = original name).
+        opacity: Transparency for this layer (0.0 = invisible, 1.0 = opaque).
+    """
+
+    layer_id: str
+    legend_alias: str = ""
+    opacity: float = 1.0
+
+
+@dataclass
 class TemplateConfig:
     """Defines a report page template layout.
 
@@ -226,8 +241,10 @@ class ReportConfig:
     # Phase 11: Advanced Customization
     label_field: Optional[str] = None
     map_opacity: float = 0.60
-    context_layer_ids: List[str] = field(default_factory=list)
+    context_layers_config: List[ContextLayerConfig] = field(default_factory=list)
     highlight_analyzed: bool = True
+    show_overview_map: bool = False
+    layer_legend_alias: str = ""
     custom_title: str = ""
     custom_footer: str = ""
     header_color: str = "#1B2838"

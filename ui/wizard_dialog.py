@@ -30,10 +30,12 @@ from qgis.PyQt.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QDoubleSpinBox,
     QFileDialog,
     QFrame,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -47,6 +49,8 @@ from qgis.PyQt.QtWidgets import (
     QScrollArea,
     QSpinBox,
     QStackedWidget,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -60,7 +64,9 @@ if TYPE_CHECKING:
         QgsOpacityWidget,
     )
 
-from ..core.models import ChartType, MapStyle, OutputFormat, ReportConfig, BaseMapType
+from ..core.models import (
+    BaseMapType, ChartType, ContextLayerConfig, MapStyle, OutputFormat, ReportConfig,
+)
 
 
 class WizardDialog(QDialog):
@@ -315,13 +321,29 @@ class WizardDialog(QDialog):
 
         scroll_layout.addWidget(grp_map)
 
-        # 2. Context Layers (Group)
+        # 2. Context Layers (Group) — Table with opacity and alias per layer
         grp_ctx = QGroupBox(self.tr("Context Layers"))
         ctx_layout = QVBoxLayout(grp_ctx)
-        self._ctx_list = QListWidget()
-        self._ctx_list.setSelectionMode(QListWidget.MultiSelection)
-        self._ctx_list.setFixedHeight(80)
-        ctx_layout.addWidget(self._ctx_list)
+        self._ctx_table = QTableWidget(0, 4)
+        self._ctx_table.setHorizontalHeaderLabels([
+            self.tr("✓"), self.tr("Layer"),
+            self.tr("Legend Alias"), self.tr("Opacity"),
+        ])
+        hdr = self._ctx_table.horizontalHeader()
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(1, QHeaderView.Stretch)
+        hdr.setSectionResizeMode(2, QHeaderView.Stretch)
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self._ctx_table.setFixedHeight(120)
+        self._ctx_table.verticalHeader().setVisible(False)
+        ctx_layout.addWidget(self._ctx_table)
+
+        # Overview Map checkbox
+        self._chk_overview = QCheckBox(self.tr("Include overview map (inset)"))
+        self._chk_overview.setToolTip(self.tr(
+            "Show a small map in the corner with the full layer extent"
+        ))
+        ctx_layout.addWidget(self._chk_overview)
         scroll_layout.addWidget(grp_ctx)
 
         # 3. Layout Customization (Group)
@@ -336,13 +358,21 @@ class WizardDialog(QDialog):
         row_title.addWidget(self._title_edit)
         lay_layout.addLayout(row_title)
 
-        # Variable Alias (Subtitle)
+        # Variable Alias (Subtitle / Legend Title)
         row_alias = QHBoxLayout()
-        row_alias.addWidget(QLabel(self.tr("Subtitle (Alias):")))
+        row_alias.addWidget(QLabel(self.tr("Legend Title:")))
         self._alias_edit = QLineEdit()
         self._alias_edit.setPlaceholderText(self.tr("e.g. Total Population 2024"))
         row_alias.addWidget(self._alias_edit)
         lay_layout.addLayout(row_alias)
+
+        # Layer Legend Name (rename analysis layer in legend)
+        row_lyr_alias = QHBoxLayout()
+        row_lyr_alias.addWidget(QLabel(self.tr("Layer Legend Name:")))
+        self._layer_alias_edit = QLineEdit()
+        self._layer_alias_edit.setPlaceholderText(self.tr("e.g. Communes"))
+        row_lyr_alias.addWidget(self._layer_alias_edit)
+        lay_layout.addLayout(row_lyr_alias)
 
         # Footer Override
         row_footer = QHBoxLayout()
@@ -512,19 +542,39 @@ class WizardDialog(QDialog):
                 # 1. Label Field
                 self._label_field_combo.setLayer(layer)
                 
-                # 2. Context Layers (exclude main layer)
-                self._ctx_list.clear()
+                # 2. Context Layers — populate table
+                self._ctx_table.setRowCount(0)
                 project = QgsProject.instance()
                 for lyr in project.mapLayers().values():
-                    # Skip main layer and potential internal layers
                     if lyr.id() == layer.id():
                         continue
-                    # Skip rasters if not desired? User said "context", rasters are fine.
-                    item = QListWidgetItem(lyr.name())
-                    item.setData(Qt.UserRole, lyr.id())
-                    item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-                    item.setCheckState(Qt.Unchecked)
-                    self._ctx_list.addItem(item)
+                    row = self._ctx_table.rowCount()
+                    self._ctx_table.insertRow(row)
+
+                    # Col 0: Checkbox
+                    chk_item = QTableWidgetItem()
+                    chk_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+                    chk_item.setCheckState(Qt.Unchecked)
+                    chk_item.setData(Qt.UserRole, lyr.id())
+                    self._ctx_table.setItem(row, 0, chk_item)
+
+                    # Col 1: Layer name (read-only)
+                    name_item = QTableWidgetItem(lyr.name())
+                    name_item.setFlags(Qt.ItemIsEnabled)
+                    self._ctx_table.setItem(row, 1, name_item)
+
+                    # Col 2: Legend Alias (editable)
+                    alias_item = QTableWidgetItem("")
+                    alias_item.setToolTip(self.tr("Custom name in legend"))
+                    self._ctx_table.setItem(row, 2, alias_item)
+
+                    # Col 3: Opacity spinner
+                    spin = QDoubleSpinBox()
+                    spin.setRange(0.0, 1.0)
+                    spin.setSingleStep(0.1)
+                    spin.setValue(1.0)
+                    spin.setDecimals(1)
+                    self._ctx_table.setCellWidget(row, 3, spin)
 
         if self._current_step == 1 and not self._validate_step_style():
             return
@@ -605,12 +655,21 @@ class WizardDialog(QDialog):
         if self._chk_labels.isChecked():
             label_field = self._label_field_combo.currentField()
             
-        context_ids = []
-        for i in range(self._ctx_list.count()):
-            item = self._ctx_list.item(i)
-            if item.checkState() == Qt.Checked:
-                context_ids.append(item.data(Qt.UserRole))
-                
+        context_configs: List[ContextLayerConfig] = []
+        for i in range(self._ctx_table.rowCount()):
+            chk = self._ctx_table.item(i, 0)
+            if chk and chk.checkState() == Qt.Checked:
+                lid = chk.data(Qt.UserRole)
+                alias = (self._ctx_table.item(i, 2).text() or "").strip()
+                spin = self._ctx_table.cellWidget(i, 3)
+                opa = spin.value() if spin else 1.0
+                context_configs.append(
+                    ContextLayerConfig(layer_id=lid, legend_alias=alias, opacity=opa)
+                )
+
+        show_overview_map = self._chk_overview.isChecked()
+        layer_legend_alias = self._layer_alias_edit.text().strip()
+
         # Layout settings
         custom_title = self._title_edit.text()
         custom_footer = self._footer_edit.text()
@@ -640,7 +699,9 @@ class WizardDialog(QDialog):
             map_opacity=map_opacity,
             highlight_analyzed=highlight,
             label_field=label_field,
-            context_layer_ids=context_ids,
+            context_layers_config=context_configs,
+            show_overview_map=show_overview_map,
+            layer_legend_alias=layer_legend_alias,
             custom_title=custom_title,
             custom_footer=custom_footer,
             header_color=header_color,
@@ -692,16 +753,8 @@ class WizardDialog(QDialog):
             primary = config.indicator_fields[0]
             self._batch_primary = primary
 
-            # Apply renderer once
-            from ..core.models import MapStyle
-            if config.map_style == MapStyle.CHOROPLETH:
-                self._composer._map_renderer._apply_graduated_renderer(
-                    layer, primary, config.color_ramp_name, num_classes=5,
-                )
-            elif config.map_style == MapStyle.CATEGORICAL:
-                self._composer._map_renderer._apply_categorical_renderer(
-                    layer, primary,
-                )
+            # Apply renderer once (includes opacity)
+            self._composer._apply_renderer(layer, config, primary)
 
             # Pre-compute shared data
             self._batch_stats = self._composer._data_engine.compute_stats(primary)

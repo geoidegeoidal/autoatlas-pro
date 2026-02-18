@@ -45,6 +45,7 @@ from .map_renderer import MapRenderer
 from .models import (
     BaseMapType,
     ChartType,
+    ContextLayerConfig,
     MapStyle,
     OutputFormat,
     ReportConfig,
@@ -341,11 +342,16 @@ class ReportComposer:
                         self._project.addMapLayer(highlight_layer, False)
                      break
 
-        # 3. Context Layers
+        # 3. Context Layers (with per-layer opacity and legend alias)
         context_layers = []
-        for lid in config.context_layer_ids:
-            lyr = self._project.mapLayer(lid)
+        _ctx_originals: list = []  # (layer, original_name, original_opacity)
+        for ctx_cfg in config.context_layers_config:
+            lyr = self._project.mapLayer(ctx_cfg.layer_id)
             if lyr and lyr.isValid():
+                _ctx_originals.append((lyr, lyr.name(), lyr.opacity()))
+                lyr.setOpacity(ctx_cfg.opacity)
+                if ctx_cfg.legend_alias:
+                    lyr.setName(ctx_cfg.legend_alias)
                 context_layers.append(lyr)
 
         # ── Set Layers: Order matters (First = Top) ──
@@ -390,11 +396,21 @@ class ReportComposer:
         )
 
         legend_title = config.variable_alias or primary_field
-        # We only want the MAIN layer in legend, not highlights or base maps
+        legend_layers = [layer] + context_layers
+
+        # Temporarily rename analysis layer for the legend
+        _orig_layer_name = layer.name()
+        if config.layer_legend_alias:
+            layer.setName(config.layer_legend_alias)
+
         self._map_renderer.add_legend(
             layout, map_item, (legend_x + 2, legend_y + 2),
-            title=legend_title, layers=[layer],
+            title=legend_title, layers=legend_layers,
+            max_width_mm=legend_w - 4,
         )
+
+        # Restore original layer name
+        layer.setName(_orig_layer_name)
 
         # ══════════════════════════════════════════════════════════════
         # 4. NORTH ARROW
@@ -412,6 +428,92 @@ class ReportComposer:
             layout, map_item,
             (map_x + 5, map_y + map_h - 12),
         )
+
+        # ══════════════════════════════════════════════════════════════
+        # 5b. OVERVIEW MAP (Inset)
+        # ══════════════════════════════════════════════════════════════
+        ov_highlight = None  # track for cleanup
+        if config.show_overview_map:
+            ov_size = 45.0
+            ov_margin = 3.0
+            ov_x = map_x + ov_margin
+            ov_y = map_y + ov_margin
+
+            # Background panel
+            self._add_rect(
+                layout,
+                (ov_x - 0.5, ov_y - 0.5, ov_size + 1, ov_size + 1),
+                "#FFFFFF",
+                border_color="#333333",
+            )
+
+            ov_map = self._map_renderer._create_map_item(
+                layout, (ov_x, ov_y, ov_size, ov_size)
+            )
+
+            # Zoom to feature extent with context buffer (5x) instead of full layer
+            feat_extent = None
+            iterator = layer.getFeatures(QgsFeatureRequest().setFilterExpression(
+                self._map_renderer._build_filter_expression(feature_id, config.id_field)
+            ))
+            for feat in iterator:
+                if feat.geometry():
+                    feat_extent = feat.geometry().boundingBox()
+                break
+
+            if feat_extent:
+                # Buffer by 5x the feature size for regional context
+                buf_w = feat_extent.width() * 5
+                buf_h = feat_extent.height() * 5
+                buffered = QgsRectangle(
+                    feat_extent.xMinimum() - buf_w,
+                    feat_extent.yMinimum() - buf_h,
+                    feat_extent.xMaximum() + buf_w,
+                    feat_extent.yMaximum() + buf_h,
+                )
+                ov_extent = self._transform_extent(
+                    buffered, layer.crs(), self._project.crs()
+                )
+            else:
+                ov_extent = self._transform_extent(
+                    layer.extent(), layer.crs(), self._project.crs()
+                )
+
+            ov_map.zoomToExtent(ov_extent)
+
+            # Build inset layers: highlight (red) + main layer
+            ov_highlight = None
+            if highlight_layer:
+                # Create a red version for overview visibility
+                iterator = layer.getFeatures(QgsFeatureRequest().setFilterExpression(
+                    self._map_renderer._build_filter_expression(feature_id, config.id_field)
+                ))
+                for feat in iterator:
+                    if feat.geometry():
+                        ov_highlight = self._map_renderer.create_highlight_overlay(
+                            feat.geometry(), layer.crs(),
+                            color="#FF0000", width=1.2,
+                        )
+                        if ov_highlight:
+                            self._project.addMapLayer(ov_highlight, False)
+                        break
+
+            ov_layers = []
+            if ov_highlight:
+                ov_layers.append(ov_highlight)
+            ov_layers.append(layer)
+            if base_layer and base_layer.isValid():
+                ov_layers.append(base_layer)
+
+            ov_map.setLayers(ov_layers)
+            ov_map.setKeepLayerSet(True)
+            ov_map.setKeepLayerStyles(True)
+            ov_map.setFrameEnabled(True)
+            ov_map.setFrameStrokeColor(QColor("#333333"))
+            ov_map.setFrameStrokeWidth(
+                QgsLayoutMeasurement(0.3, Qgis.LayoutUnit.Millimeters)
+            )
+            ov_map.refresh()
 
         # ══════════════════════════════════════════════════════════════
         # 6. FOOTER BAND
@@ -436,9 +538,19 @@ class ReportComposer:
         # ══════════════════════════════════════════════════════════════
         output_path = self._export(layout, config, safe_name)
         
-        # Cleanup Highlight Layer
+        # Cleanup temporary layers
         if highlight_layer:
             self._project.removeMapLayer(highlight_layer.id())
+        if ov_highlight:
+            self._project.removeMapLayer(ov_highlight.id())
+
+        # Restore original names and opacity for context layers
+        for lyr, orig_name, orig_opacity in _ctx_originals:
+            try:
+                lyr.setName(orig_name)
+                lyr.setOpacity(orig_opacity)
+            except Exception:
+                pass
 
         layout.clear()
         del layout

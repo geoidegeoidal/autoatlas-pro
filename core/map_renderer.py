@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import List, Optional, Tuple
 
 from qgis.core import (
+    Qgis,
     QgsFeatureRequest,
     QgsGraduatedSymbolRenderer,
     QgsLayoutItemLabel,
@@ -163,6 +164,7 @@ class MapRenderer:
         pos_mm: Tuple[float, float],
         title: str = "",
         layers: Optional[List[QgsMapLayer]] = None,
+        max_width_mm: float = 0.0,
     ) -> QgsLayoutItemLegend:
         """Add a legend linked to a map item.
 
@@ -172,6 +174,7 @@ class MapRenderer:
             pos_mm: (x, y) position in mm.
             title: Optional title for the legend.
             layers: If set, only show these layers (excludes all others).
+            max_width_mm: If > 0, constrain legend width to this value.
 
         Returns:
             The created legend item.
@@ -193,14 +196,34 @@ class MapRenderer:
         if title:
             legend.setTitle(title)
 
-        # ── Font hierarchy ──
-        legend.setStyleFont(QgsLegendStyle.Title, QFont("Arial", 11, QFont.Bold))
-        legend.setStyleFont(QgsLegendStyle.Subgroup, QFont("Arial", 9))
-        legend.setStyleFont(QgsLegendStyle.SymbolLabel, QFont("Arial", 8))
+        # Force single column and wrap long text
+        legend.setColumnCount(1)
+        legend.setWrapString(" ")
+        legend.setSplitLayer(False)
+
+        # ── Responsive font hierarchy ──
+        n = len(layers) if layers else 1
+        if n <= 3:
+            t_sz, sub_sz, sym_sz = 11, 9, 8
+        elif n <= 6:
+            t_sz, sub_sz, sym_sz = 10, 8, 7
+        else:
+            t_sz, sub_sz, sym_sz = 9, 7, 6
+
+        legend.setStyleFont(QgsLegendStyle.Title, QFont("Arial", t_sz, QFont.Bold))
+        legend.setStyleFont(QgsLegendStyle.Subgroup, QFont("Arial", sub_sz))
+        legend.setStyleFont(QgsLegendStyle.SymbolLabel, QFont("Arial", sym_sz))
 
         # Transparent background (parent will provide bg panel)
         legend.setBackgroundEnabled(False)
         legend.setFrameEnabled(False)
+
+        # Constrain width so text wraps inside the legend panel
+        if max_width_mm > 0:
+            legend.setResizeToContents(False)
+            legend.attemptResize(
+                QgsLayoutSize(max_width_mm, 200, Qgis.LayoutUnit.Millimeters)
+            )
 
         layout.addLayoutItem(legend)
         return legend
@@ -211,31 +234,47 @@ class MapRenderer:
         map_item: QgsLayoutItemMap,
         pos_mm: Tuple[float, float],
     ) -> QgsLayoutItemScaleBar:
-        """Add a scale bar linked to a map item."""
+        """Add a scale bar linked to a map item.
+
+        The bar auto-sizes relative to the map extent, capping its
+        physical width so it never dominates the layout.
+        """
         scale_bar = QgsLayoutItemScaleBar(layout)
         scale_bar.setLinkedMap(map_item)
         scale_bar.attemptMove(QgsLayoutPoint(pos_mm[0], pos_mm[1]))
         scale_bar.setStyle("Single Box")
-        scale_bar.setNumberOfSegments(3)
         scale_bar.setNumberOfSegmentsLeft(0)
 
-        # Auto-detect appropriate segment size from map extent
+        # ── Compute extent width in metres ──
         extent = map_item.extent()
-        extent_width = extent.width()  # in map CRS units
+        extent_width = extent.width()
 
-        # If CRS units are degrees, convert ~111km per degree
         crs = map_item.crs()
         if crs.isValid() and crs.mapUnits() == QgsUnitTypes.DistanceDegrees:
             extent_width_m = extent_width * 111000
         else:
             extent_width_m = extent_width
 
-        # Pick a clean segment size (~1/5 of extent width)
-        target = extent_width_m / 5
-        # Round to nearest "nice" number
-        nice_values = [0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500,
-                       1000, 2000, 5000, 10000, 20000, 50000, 100000]
+        # ── Pick a clean segment size (~15% of extent) ──
+        target = extent_width_m * 0.15
+        nice_values = [
+            0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500,
+            1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000,
+        ]
         seg_size = min(nice_values, key=lambda v: abs(v - target))
+
+        # ── Determine how many segments fit within ~25% of map width on paper ──
+        map_width_mm = map_item.rect().width()
+        max_bar_width_mm = min(map_width_mm * 0.25, 60.0)  # cap at 60mm
+
+        # Metres per mm on paper
+        m_per_mm = extent_width_m / map_width_mm if map_width_mm > 0 else 1.0
+        seg_width_mm = seg_size / m_per_mm if m_per_mm > 0 else 30.0
+
+        # Scale down segments if too wide, up if too narrow
+        num_segments = max(1, min(4, int(max_bar_width_mm / seg_width_mm)))
+
+        scale_bar.setNumberOfSegments(num_segments)
 
         if seg_size >= 1000:
             scale_bar.setUnitsPerSegment(seg_size)
@@ -245,6 +284,9 @@ class MapRenderer:
             scale_bar.setUnitsPerSegment(seg_size)
             scale_bar.setMapUnitsPerScaleBarUnit(1)
             scale_bar.setUnitLabel("m")
+
+        # ── Constrain physical height for compactness ──
+        scale_bar.setHeight(2.0)  # mm
 
         # Style
         scale_bar.setFont(QFont("Arial", 7))
@@ -459,8 +501,13 @@ class MapRenderer:
         num_classes: int = 5,
         opacity: float = 1.0,
     ) -> None:
-        """Apply a graduated renderer using standard deviation or quantiles."""
-        layer.setOpacity(opacity)
+        """Apply a graduated renderer.
+
+        Opacity is applied per-symbol fill (alpha channel) so polygon
+        borders remain fully opaque and always visible.
+        """
+        from qgis.PyQt.QtGui import QColor as _QColor
+
         idx = layer.fields().indexFromName(field_name)
         if idx < 0:
             return
@@ -485,6 +532,7 @@ class MapRenderer:
         if not ramp:
             ramp = QgsStyle.defaultStyle().colorRamp("Spectral")
 
+        alpha = int(opacity * 255)
         ranges = []
         for i in range(num_classes):
             lower = min_val + i * interval
@@ -495,11 +543,20 @@ class MapRenderer:
             symbol = QgsSymbol.defaultSymbol(layer.geometryType())
             if ramp:
                 color = ramp.color(i / max(num_classes - 1, 1))
+                color.setAlpha(alpha)
                 symbol.setColor(color)
+
+            # Keep borders opaque so adjacent polygons are always visible
+            sl = symbol.symbolLayer(0)
+            if sl:
+                sl.setStrokeColor(_QColor(80, 80, 80, 255))
+                sl.setStrokeWidth(0.2)
 
             label = f"{lower:,.1f} - {upper:,.1f}"
             ranges.append(QgsRendererRange(lower, upper, symbol, label))
 
         renderer = QgsGraduatedSymbolRenderer(field_name, ranges)
         layer.setRenderer(renderer)
+        # Reset layer-level opacity to 1.0 (transparency is handled per-symbol)
+        layer.setOpacity(1.0)
         layer.triggerRepaint()
