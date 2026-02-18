@@ -196,9 +196,8 @@ class MapRenderer:
         if title:
             legend.setTitle(title)
 
-        # Force single column and wrap long text
+        # Force single column layout
         legend.setColumnCount(1)
-        legend.setWrapString(" ")
         legend.setSplitLayer(False)
 
         # ── Responsive font hierarchy ──

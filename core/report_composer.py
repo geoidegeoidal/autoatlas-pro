@@ -399,6 +399,7 @@ class ReportComposer:
         legend_layers = [layer] + context_layers
 
         # Temporarily rename analysis layer for the legend
+        # (restored AFTER export so the rendered legend shows the alias)
         _orig_layer_name = layer.name()
         if config.layer_legend_alias:
             layer.setName(config.layer_legend_alias)
@@ -408,9 +409,6 @@ class ReportComposer:
             title=legend_title, layers=legend_layers,
             max_width_mm=legend_w - 4,
         )
-
-        # Restore original layer name
-        layer.setName(_orig_layer_name)
 
         # ══════════════════════════════════════════════════════════════
         # 4. NORTH ARROW
@@ -451,7 +449,7 @@ class ReportComposer:
                 layout, (ov_x, ov_y, ov_size, ov_size)
             )
 
-            # Zoom to feature extent with context buffer (5x) instead of full layer
+            # Zoom to feature extent with regional context buffer (2x)
             feat_extent = None
             iterator = layer.getFeatures(QgsFeatureRequest().setFilterExpression(
                 self._map_renderer._build_filter_expression(feature_id, config.id_field)
@@ -459,12 +457,11 @@ class ReportComposer:
             for feat in iterator:
                 if feat.geometry():
                     feat_extent = feat.geometry().boundingBox()
-                break
+                    break
 
             if feat_extent:
-                # Buffer by 5x the feature size for regional context
-                buf_w = feat_extent.width() * 5
-                buf_h = feat_extent.height() * 5
+                buf_w = feat_extent.width() * 2
+                buf_h = feat_extent.height() * 2
                 buffered = QgsRectangle(
                     feat_extent.xMinimum() - buf_w,
                     feat_extent.yMinimum() - buf_h,
@@ -551,6 +548,9 @@ class ReportComposer:
                 lyr.setOpacity(orig_opacity)
             except Exception:
                 pass
+
+        # Restore analysis layer name
+        layer.setName(_orig_layer_name)
 
         layout.clear()
         del layout

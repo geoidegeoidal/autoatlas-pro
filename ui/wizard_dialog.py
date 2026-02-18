@@ -346,7 +346,29 @@ class WizardDialog(QDialog):
         ctx_layout.addWidget(self._chk_overview)
         scroll_layout.addWidget(grp_ctx)
 
-        # 3. Layout Customization (Group)
+        # 3. Legend Settings (Group)
+        grp_legend = QGroupBox(self.tr("Legend Settings"))
+        legend_layout = QVBoxLayout(grp_legend)
+
+        # Legend Title
+        row_alias = QHBoxLayout()
+        row_alias.addWidget(QLabel(self.tr("Legend Title:")))
+        self._alias_edit = QLineEdit()
+        self._alias_edit.setPlaceholderText(self.tr("e.g. Total Population 2024"))
+        row_alias.addWidget(self._alias_edit)
+        legend_layout.addLayout(row_alias)
+
+        # Analysis Layer Name in Legend
+        row_lyr_alias = QHBoxLayout()
+        row_lyr_alias.addWidget(QLabel(self.tr("Analysis Layer Name:")))
+        self._layer_alias_edit = QLineEdit()
+        self._layer_alias_edit.setPlaceholderText(self.tr("e.g. Communes"))
+        row_lyr_alias.addWidget(self._layer_alias_edit)
+        legend_layout.addLayout(row_lyr_alias)
+
+        scroll_layout.addWidget(grp_legend)
+
+        # 4. Layout Customization (Group)
         grp_layout = QGroupBox(self.tr("Layout Settings"))
         lay_layout = QVBoxLayout(grp_layout)
         
@@ -357,22 +379,6 @@ class WizardDialog(QDialog):
         self._title_edit.setPlaceholderText(self.tr("Leave empty for feature name"))
         row_title.addWidget(self._title_edit)
         lay_layout.addLayout(row_title)
-
-        # Variable Alias (Subtitle / Legend Title)
-        row_alias = QHBoxLayout()
-        row_alias.addWidget(QLabel(self.tr("Legend Title:")))
-        self._alias_edit = QLineEdit()
-        self._alias_edit.setPlaceholderText(self.tr("e.g. Total Population 2024"))
-        row_alias.addWidget(self._alias_edit)
-        lay_layout.addLayout(row_alias)
-
-        # Layer Legend Name (rename analysis layer in legend)
-        row_lyr_alias = QHBoxLayout()
-        row_lyr_alias.addWidget(QLabel(self.tr("Layer Legend Name:")))
-        self._layer_alias_edit = QLineEdit()
-        self._layer_alias_edit.setPlaceholderText(self.tr("e.g. Communes"))
-        row_lyr_alias.addWidget(self._layer_alias_edit)
-        lay_layout.addLayout(row_lyr_alias)
 
         # Footer Override
         row_footer = QHBoxLayout()
