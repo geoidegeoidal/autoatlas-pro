@@ -9,9 +9,9 @@ license=GNU General Public License v3.0
 
 about=AutoAtlas Pro automates the generation of professional cartographic reports combining thematic maps, statistical charts, and summary tables. Perfect for census data, demographic analysis, municipal reports, and academic research. Supports batch generation across all territorial units with customizable templates.
 
-tracker=https://github.com/autoatlas/autoatlas-pro/issues
-repository=https://github.com/autoatlas/autoatlas-pro
-homepage=https://github.com/autoatlas/autoatlas-pro
+tracker=https://github.com/geoidegeoidal/autoatlas-pro/issues
+repository=https://github.com/geoidegeoidal/autoatlas-pro
+homepage=https://github.com/geoidegeoidal/autoatlas-pro
 
 hasProcessingProvider=no
 tags=atlas,report,cartography,census,dashboard,charts,statistics,batch,pdf
