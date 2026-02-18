@@ -161,7 +161,14 @@ TRANS_UI = {
 }
 
 from ..core.models import (
-    BaseMapType, ChartType, ContextLayerConfig, MapStyle, OutputFormat, ReportConfig,
+    BaseMapType,
+    ChartType,
+    ContextLayerConfig,
+    GraduatedMode,
+    MapStyle,
+    OutputFormat,
+    ReportConfig,
+    TemplateConfig,
 )
 
 
