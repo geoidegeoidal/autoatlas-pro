@@ -497,11 +497,14 @@ class ReportComposer:
             layer.setName(config.layer_legend_alias)
 
         legend_cols = 4 if is_vertical else 1
+        # For vertical layout (bottom legend), let it auto-size (compact columns).
+        # For horizontal (side legend), constrain width to the side panel.
+        width_constraint = 0.0 if is_vertical else (legend_w - 4)
         
         self._map_renderer.add_legend(
             layout, map_item, (legend_x + 2, legend_y + 2),
             title=legend_title, layers=legend_layers,
-            max_width_mm=legend_w - 4,
+            max_width_mm=width_constraint,
             columns=legend_cols,
         )
 
