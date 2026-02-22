@@ -1,20 +1,20 @@
 [general]
 name=AutoAtlas Pro
 qgisMinimumVersion=3.28
-description=Automated cartographic report generator. Create multi-page atlas reports with maps, charts, and statistics in one click.
-version=0.1.0
+description=Automated cartographic report generator. Create professional atlas reports with thematic maps in one click.
+version=1.2.0
 author=AutoAtlas Team
 email=autoatlas.pro@gmail.com
 license=GNU General Public License v3.0
 
-about=AutoAtlas Pro automates the generation of professional cartographic reports combining thematic maps, statistical charts, and summary tables. Perfect for census data, demographic analysis, municipal reports, and academic research. Supports batch generation across all territorial units with customizable templates.
+about=AutoAtlas Pro automates the generation of professional cartographic reports with thematic maps. Perfect for census data, demographic analysis, municipal reports, and academic research. Features a Dark Corporate UI theme, resilient batch generation with Circuit Breaker pattern, and Graceful Degradation for offline basemaps. Supports PDF and PNG export with customizable templates.
 
 tracker=https://github.com/geoidegeoidal/autoatlas-pro/issues
 repository=https://github.com/geoidegeoidal/autoatlas-pro
 homepage=https://github.com/geoidegeoidal/autoatlas-pro
 
 hasProcessingProvider=no
-tags=atlas,report,cartography,census,dashboard,charts,statistics,batch,pdf
+tags=atlas,report,cartography,census,batch,pdf,maps,thematic
 category=Cartography
 icon=icon.svg
 
@@ -23,11 +23,16 @@ deprecated=False
 supportsQt6=True
 
 changelog=
+    1.2.0 - Dark Corporate UI & Resilient Architecture
+        * MVC refactoring: WizardController separation
+        * Dark Corporate QSS theme with WCAG AA contrast
+        * Circuit Breaker for batch rendering failures
+        * Graceful Degradation for offline basemap providers
+        * Editorial-quality PDF output (Segoe UI, Slate/Cyan palette)
+        * Strict HEX color validation in ReportConfig
     0.1.0 - Initial release
         * Wizard-based report configuration
         * Choropleth and categorical map generation
-        * Distribution, ranking, and waffle charts
         * PDF and PNG batch export
-        * Institutional, academic, and minimal templates
         * Bilingual UI (English/Spanish)
-        * Built-in dependency installer for optional packages
+
