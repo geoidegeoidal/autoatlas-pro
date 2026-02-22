@@ -18,7 +18,7 @@ tags=atlas,report,cartography,census,batch,pdf,maps,thematic
 category=Cartography
 icon=icon.svg
 
-experimental=True
+experimental=False
 deprecated=False
 supportsQt6=True
 
