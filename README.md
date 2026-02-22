@@ -30,10 +30,8 @@ Perfect for:
 | **Magazine Styling** | High contrast palettes, Segoe UI typography and dynamic slate backgrounds for empty tiles |
 | **Custom Branding** | Add your organization's **Logo**, custom title, and footer text |
 | **Bilingual UI** | Instant switching between **English** and **Spanish** |
-| **Statistical Charts** | Distribution histogram, ranking lollipop, proportion donut, summary table |
 | **Resilient Batch** | Built-in *Circuit Breaker* and *Graceful Degradation* timeouts to prevent QGIS crashes |
 | **PDF & PNG Export** | Configurable DPI (72–1200) |
-| **Dependency Installer** | Built-in one-click installer for optional packages (pandas, plotly) |
 
 ## 📦 Installation
 
@@ -50,15 +48,7 @@ Perfect for:
    - **Linux**: `~/.local/share/QGIS/QGIS3/profiles/default/python/plugins/`
 3. Restart QGIS and enable the plugin
 
-## 🛠️ Optional Dependencies
 
-AutoAtlas Pro works out of the box with matplotlib (bundled with QGIS). For premium chart quality, install optional packages via the built-in installer on first launch:
-
-| Package | Purpose |
-|---------|---------|
-| `pandas` | Accelerated data aggregation |
-| `plotly` | High-impact interactive charts |
-| `kaleido` | Static image export for Plotly |
 
 ## 📖 Usage
 
