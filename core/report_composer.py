@@ -26,6 +26,7 @@ from qgis.core import (
     QgsLayoutItemLegend,
     QgsLayoutItemMap,
     QgsLayoutItemPicture,
+    QgsLayoutItemShape,
     QgsLayoutMeasurement,
     QgsLayoutPoint,
     QgsLayoutSize,
