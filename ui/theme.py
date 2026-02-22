@@ -1,10 +1,19 @@
 """Global Qt Style Sheets (QSS) for AutoAtlas Pro UI."""
 
 DARK_CORPORATE_QSS = """
-QDialog {
+/* Global Widget styling to prevent white backgrounds and default fonts */
+QWidget {
+    font-family: "Segoe UI", "Inter", sans-serif;
+    color: #F8FAFC;
+}
+
+QDialog, QStackedWidget, QScrollArea, QWidget#scrollAreaWidgetContents {
     background-color: #0F172A;
-    color: #E2E8F0;
-    font-family: "Inter", "Segoe UI", sans-serif;
+}
+
+/* Base widgets inside the stack/scroll area that might have default backgrounds */
+QFrame {
+    border: none;
 }
 
 /* Group Boxes: Clean corporate cards */
@@ -12,9 +21,9 @@ QGroupBox {
     border: 1px solid #334155;
     border-radius: 8px;
     margin-top: 24px;
-    padding-top: 18px;
-    font-weight: 600;
-    color: #94A3B8;
+    padding-top: 24px;
+    font-weight: bold;
+    color: #F8FAFC;
     background-color: #1E293B;
 }
 QGroupBox::title {
@@ -27,14 +36,9 @@ QGroupBox::title {
 
 /* Typography & Labels */
 QLabel {
-    color: #E2E8F0;
-    font-size: 13px;
-}
-QLabel h3 {
     color: #F8FAFC;
-    font-size: 18px;
-    font-weight: bold;
-    margin-bottom: 4px;
+    font-size: 13px;
+    background: transparent;
 }
 
 /* Inputs & Comboboxes */
@@ -98,8 +102,8 @@ QPushButton#primary_action:hover {
     background-color: #0369A1;
 }
 
-/* Tables */
-QTableWidget {
+/* Tables & Lists */
+QTableWidget, QListWidget {
     background-color: #0F172A;
     color: #E2E8F0;
     gridline-color: #334155;
@@ -112,6 +116,17 @@ QHeaderView::section {
     padding: 6px;
     border: 1px solid #334155;
     font-weight: bold;
+}
+
+QListWidget::item {
+    padding: 4px;
+}
+QListWidget::item:hover {
+    background-color: #1E293B;
+}
+QListWidget::item:selected {
+    background-color: #0284C7;
+    color: #F8FAFC;
 }
 
 /* Scrollbars */
