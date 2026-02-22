@@ -11,7 +11,6 @@ from typing import List, Optional, Tuple
 from qgis.core import (
     Qgis,
     QgsCategorizedSymbolRenderer,
-    QgsClassificationMethod,
     QgsFeatureRequest,
     QgsGraduatedSymbolRenderer,
     QgsLayoutItemLabel,
@@ -27,8 +26,6 @@ from qgis.core import (
     QgsProject,
     QgsRectangle,
     QgsRendererCategory,
-    QgsRendererRange,
-    QgsSimpleFillSymbolLayer,
     QgsSingleSymbolRenderer,
     QgsStyle,
     QgsSymbol,
@@ -54,56 +51,8 @@ class MapRenderer:
         self._project = project or QgsProject.instance()
 
     # ------------------------------------------------------------------
-    # Main render methods
+    # Render API
     # ------------------------------------------------------------------
-
-    def render_choropleth(
-        self,
-        layout: QgsPrintLayout,
-        layer: QgsVectorLayer,
-        field_name: str,
-        color_ramp_name: str,
-        rect_mm: Tuple[float, float, float, float],
-        feature_id: object = None,
-        id_field: str = "",
-        num_classes: int = 5,
-    ) -> QgsLayoutItemMap:
-        """Add a choropleth (graduated) map to the layout."""
-        self._apply_graduated_renderer(layer, field_name, color_ramp_name, num_classes)
-        map_item = self._create_map_item(layout, rect_mm)
-
-        if feature_id is not None and id_field:
-            extent = self._get_feature_extent(layer, id_field, feature_id)
-        else:
-            extent = layer.extent()
-
-        map_item.setExtent(extent)
-        map_item.setLayers([layer])
-        return map_item
-
-    def render_categorical(
-        self,
-        layout: QgsPrintLayout,
-        layer: QgsVectorLayer,
-        field_name: str,
-        rect_mm: Tuple[float, float, float, float],
-        feature_id: object = None,
-        id_field: str = "",
-    ) -> QgsLayoutItemMap:
-        """Add a categorical map to the layout."""
-        self._apply_categorical_renderer(layer, field_name)
-        map_item = self._create_map_item(layout, rect_mm)
-
-        if feature_id is not None and id_field:
-            extent = self._get_feature_extent(layer, id_field, feature_id)
-        else:
-            extent = layer.extent()
-
-        map_item.setExtent(extent)
-        map_item.setLayers([layer])
-        map_item.setKeepLayerSet(True)
-        map_item.setKeepLayerStyles(True)
-        return map_item
 
     def apply_style(
         self,
@@ -115,10 +64,22 @@ class MapRenderer:
         graduated_mode: GraduatedMode = GraduatedMode.QUANTILE,
         classes: int = 5,
         single_color: str = "#3388FF",
-        category_field: str = None,
+        category_field: Optional[str] = None,
         opacity: float = 1.0,
     ) -> None:
-        """Apply the specified map style to the vector layer."""
+        """Apply the specified map style to the vector layer.
+        
+        Args:
+            layer: Target vector layer.
+            style: Map styling mode (Single, Graduated, Categorized).
+            field_name: Primary attribute field for visualization.
+            color_ramp: Name of the QGIS color ramp to use.
+            graduated_mode: Classification method for Graduated style.
+            classes: Number of classes for Graduated style.
+            single_color: Hex color string for Single Symbol style.
+            category_field: Specific field for Categorized style (optional override).
+            opacity: Layer opacity (0.0 to 1.0).
+        """
         layer.setOpacity(opacity)
         
         if style == MapStyle.SINGLE:
@@ -135,11 +96,12 @@ class MapRenderer:
         layer.triggerRepaint()
 
     def _apply_single_symbol(self, layer: QgsVectorLayer, color_hex: str) -> None:
-        """Apply single symbol renderer."""
+        """Apply single symbol renderer with specified color."""
         symbol = QgsSymbol.defaultSymbol(layer.geometryType())
-        symbol.setColor(QColor(color_hex))
-        renderer = QgsSingleSymbolRenderer(symbol)
-        layer.setRenderer(renderer)
+        if symbol:
+            symbol.setColor(QColor(color_hex))
+            renderer = QgsSingleSymbolRenderer(symbol)
+            layer.setRenderer(renderer)
 
     def _apply_graduated_symbol(
         self,
@@ -149,8 +111,7 @@ class MapRenderer:
         classes: int,
         ramp_name: str,
     ) -> None:
-        """Apply graduated symbol renderer."""
-        # Create base range
+        """Apply graduated symbol renderer using specified classification mode."""
         symbol = QgsSymbol.defaultSymbol(layer.geometryType())
         ramp = QgsStyle.defaultStyle().colorRamp(ramp_name)
         if not ramp:
@@ -161,11 +122,7 @@ class MapRenderer:
         renderer.setSourceSymbol(symbol)
         renderer.setSourceColorRamp(ramp)
         
-        # Map GraduatedMode enum to QgsClassificationMethod
-        # Note: In QGIS API 3, we often use setClassificationMethod
-        # But for simplicity with QgsGraduatedSymbolRenderer.createRenderer usually handles it
-        # Here we manually set mode.
-        
+        # Map GraduatedMode enum to QgsGraduatedSymbolRenderer constants
         qgis_mode = QgsGraduatedSymbolRenderer.Quantile
         if mode == GraduatedMode.EQUAL_INTERVAL:
             qgis_mode = QgsGraduatedSymbolRenderer.EqualInterval
@@ -177,11 +134,6 @@ class MapRenderer:
         renderer.setMode(qgis_mode)
         renderer.updateClasses(layer, classes)
         
-        # Apply strict checking
-        if len(renderer.ranges()) == 0:
-             # Fallback if classification failed (e.g. no data)
-             pass
-             
         layer.setRenderer(renderer)
 
     def _apply_categorized_symbol(
@@ -190,19 +142,18 @@ class MapRenderer:
         field_name: str,
         ramp_name: str,
     ) -> None:
-        """Apply categorized renderer."""
+        """Apply categorized renderer with unique values from field."""
         categories = []
         unique_values = set()
         
-        # Get unique values efficiently
         idx = layer.fields().indexOf(field_name)
         if idx != -1:
             unique_values = layer.uniqueValues(idx)
         
-        # Sort if possible
         try:
             sorted_values = sorted(unique_values)
-        except:
+        except TypeError:
+            # Fallback for mixed types that cannot be sorted
             sorted_values = list(unique_values)
 
         ramp = QgsStyle.defaultStyle().colorRamp(ramp_name)
@@ -214,7 +165,7 @@ class MapRenderer:
             
             if ramp_name == "Random":
                 from random import randint
-                color = QColor(randint(0,255), randint(0,255), randint(0,255))
+                color = QColor(randint(0, 255), randint(0, 255), randint(0, 255))
                 symbol.setColor(color)
             elif ramp and len(sorted_values) > 1:
                 color = ramp.color(i / max(len(sorted_values) - 1, 1))

@@ -12,6 +12,8 @@ from pathlib import Path
 import tempfile
 from typing import TYPE_CHECKING, List, Optional
 
+from .wizard_controller import WizardController
+
 from qgis.core import (
     QgsMapLayerProxyModel,
     QgsProject,
@@ -24,7 +26,7 @@ from qgis.gui import (
     QgsOpacityWidget,
     QgsMapLayerComboBox,
 )
-from qgis.PyQt.QtCore import QCoreApplication, QSize, Qt
+from qgis.PyQt.QtCore import QCoreApplication, QSize, Qt, QPropertyAnimation, QEasingCurve
 from qgis.PyQt.QtGui import QColor, QFont, QIcon, QPixmap
 from qgis.PyQt.QtWidgets import (
     QCheckBox,
@@ -33,6 +35,7 @@ from qgis.PyQt.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
     QFrame,
+    QGraphicsOpacityEffect,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -183,10 +186,14 @@ class WizardDialog(QDialog):
         super().__init__(parent)
         self._iface = iface
         self._current_step = 0
+        self._controller = WizardController(self)
 
         self.setWindowTitle(self.tr("AutoAtlas Pro — Report Wizard"))
         self.setMinimumSize(QSize(680, 520))
         self.setModal(True)
+        
+        from .theme import DARK_CORPORATE_QSS
+        self.setStyleSheet(DARK_CORPORATE_QSS)
 
         self._build_ui()
 
@@ -211,6 +218,13 @@ class WizardDialog(QDialog):
         self._stack.addWidget(self._build_step_data())
         self._stack.addWidget(self._build_step_style())
         self._stack.addWidget(self._build_step_output())
+        
+        self._opacity_eff = QGraphicsOpacityEffect(self._stack)
+        self._stack.setGraphicsEffect(self._opacity_eff)
+        self._anim = QPropertyAnimation(self._opacity_eff, b"opacity")
+        self._anim.setDuration(300)
+        self._anim.setEasingCurve(QEasingCurve.InOutQuad)
+        
         root.addWidget(self._stack, stretch=1)
 
         # --- Footer with navigation buttons ---
@@ -225,6 +239,7 @@ class WizardDialog(QDialog):
     # ------------------------------------------------------------------
 
     def _build_header(self) -> QWidget:
+        """Build the top header with step progress indicators."""
         header = QFrame()
         header.setStyleSheet(
             "QFrame { background: #0f3460; padding: 16px; }"
@@ -251,6 +266,7 @@ class WizardDialog(QDialog):
         return header
 
     def _update_step_indicator(self) -> None:
+        """Update the visual state of step labels based on current step."""
         for i, lbl in enumerate(self._step_labels):
             if i == self._current_step:
                 lbl.setStyleSheet("color: white;")
@@ -273,6 +289,7 @@ class WizardDialog(QDialog):
     # ------------------------------------------------------------------
 
     def _build_step_data(self) -> QWidget:
+        """Build Step 1 UI: Layer, Fields, and Language selection."""
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(24, 24, 24, 24)
@@ -408,6 +425,7 @@ class WizardDialog(QDialog):
     # ------------------------------------------------------------------
 
     def _build_step_style(self) -> QWidget:
+        """Build Step 2 UI: Map style, customization, and general settings."""
         page = QWidget()
         layout = QVBoxLayout(page)
         
@@ -730,6 +748,7 @@ class WizardDialog(QDialog):
     # ------------------------------------------------------------------
 
     def _build_step_output(self) -> QWidget:
+        """Build Step 3 UI: Output format and directory selection."""
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(24, 24, 24, 24)
@@ -956,7 +975,9 @@ class WizardDialog(QDialog):
 
     def _go_next(self) -> None:
         if self._current_step == 0:
-            if not self._validate_step_data():
+            is_valid, err_msg = self._controller.validate_step_data()
+            if not is_valid:
+                QMessageBox.warning(self, self.tr("Validation"), err_msg)
                 return
             
             # Prepare Step 2 (Style)
@@ -999,15 +1020,30 @@ class WizardDialog(QDialog):
                     spin.setDecimals(1)
                     self._ctx_table.setCellWidget(row, 3, spin)
 
-        if self._current_step == 1 and not self._validate_step_style():
-            return
+        if self._current_step == 1:
+            pass # Style validation is implicitly true
         if self._current_step == 2:
-            self._generate_reports()
+            self._progress_bar.setVisible(True)
+            self._progress_label.setVisible(True)
+            self._btn_next.setText(self.tr("Cancel"))
+            self._btn_next.setEnabled(True)
+            self._btn_back.setEnabled(False)
+            try:
+                self._btn_next.clicked.disconnect()
+            except TypeError:
+                pass
+            self._btn_next.clicked.connect(self._controller.cancel_generation)
+            self._controller.start_generation()
             return
 
         self._current_step += 1
         self._stack.setCurrentIndex(self._current_step)
         self._btn_back.setEnabled(True)
+        
+        self._anim.stop()
+        self._anim.setStartValue(0.0)
+        self._anim.setEndValue(1.0)
+        self._anim.start()
 
         self._update_step_indicator()
         self._update_ui_text()
@@ -1019,296 +1055,41 @@ class WizardDialog(QDialog):
         self._current_step -= 1
         self._stack.setCurrentIndex(self._current_step)
         self._btn_back.setEnabled(self._current_step > 0)
+        
+        self._anim.stop()
+        self._anim.setStartValue(0.0)
+        self._anim.setEndValue(1.0)
+        self._anim.start()
+        
         self._update_step_indicator()
         self._update_ui_text()
 
-    # ------------------------------------------------------------------
-    # Validation
-    # ------------------------------------------------------------------
 
-    def _validate_step_data(self) -> bool:
-        layer = self._layer_combo.currentLayer()
-        if not layer:
-            QMessageBox.warning(self, self.tr("Validation"), self.tr("Please select a coverage layer."))
-            return False
-            
-        # Check indicators
-        has_indic = False
-        for i in range(self._indicator_list.count()):
-            if self._indicator_list.item(i).checkState() == Qt.Checked:
-                has_indic = True
-                break
-        
-        if not has_indic:
-            QMessageBox.warning(self, self.tr("Validation"), self.tr("Please select at least one indicator field."))
-            return False
-
-        return True
-
-    def _validate_step_style(self) -> bool:
-        # All style options have defaults, so always valid
-        return True
 
     # ------------------------------------------------------------------
     # Report generation
     # ------------------------------------------------------------------
 
-    def _build_config(self) -> ReportConfig:
-        """Build a ReportConfig from the wizard's current state."""
-        layer = self._layer_combo.currentLayer()
-
-        indicator_fields = []
-        for i in range(self._indicator_list.count()):
-            item = self._indicator_list.item(i)
-            if item.checkState() == Qt.Checked:
-                indicator_fields.append(item.text())
-
-        # Map Style settings
-        map_style = self._style_combo.currentData()
-        ramp_name = self._ramp_combo.currentText()
-        base_map = self._basemap_combo.currentData()
-        
-        # New Phase 11 settings
-        map_opacity = self._opacity_widget.opacity()
-        highlight = self._chk_highlight.isChecked()
-        
-        label_field = None
-        if self._chk_labels.isChecked():
-            label_field = self._label_field_combo.currentField()
-            
-        context_configs: List[ContextLayerConfig] = []
-        for i in range(self._ctx_table.rowCount()):
-            chk = self._ctx_table.item(i, 0)
-            if chk and chk.checkState() == Qt.Checked:
-                lid = chk.data(Qt.UserRole)
-                alias = (self._ctx_table.item(i, 2).text() or "").strip()
-                spin = self._ctx_table.cellWidget(i, 3)
-                opa = spin.value() if spin else 1.0
-                context_configs.append(
-                    ContextLayerConfig(layer_id=lid, legend_alias=alias, opacity=opa)
-                )
-
-        show_overview_map = self._chk_overview.isChecked()
-        show_overview_labels = self._chk_overview_labels.isChecked()
-        layer_legend_alias = self._layer_alias_edit.text().strip()
-
-        # Layout settings
-        custom_title = self._title_edit.text()
-        custom_footer = self._footer_edit.text()
-        header_color = self._col_header.color().name()
-        footer_color = self._col_footer.color().name()
-
-        # General Settings
-        language = self._lang_combo.currentText()
-        template_name = self._template_combo.currentText()
-        logo_path = self._logo_path_edit.text().strip()
-        logo_pos = self._logo_pos_combo.currentText()
-        variable_alias = self._alias_edit.text().strip()
-
-        # Charts (removed in Phase 9)
-        chart_types = []
-        
-        output_format = OutputFormat.PDF if self._radio_pdf.isChecked() else OutputFormat.PNG
-        output_dir = Path(self._dir_edit.text().strip())
-
-        # Style Settings
-        map_style = self._style_combo.currentData()
-        
-        # Determine ramp based on style
-        ramp_name = "Spectral"
-        if map_style == MapStyle.GRADUATED:
-            ramp_name = self._ramp_combo.currentText()
-        elif map_style == MapStyle.CATEGORIZED:
-            ramp_name = self._cat_ramp_combo.currentText()
-            
-        # Specific style params
-        graduated_mode = self._mode_combo.currentData()
-        graduated_classes = self._classes_spin.value()
-        single_color = self._color_btn_single.color().name()
-        category_field = self._cat_col_combo.currentField()
-        
-        return ReportConfig(
-            layer_id=layer.id(),
-            id_field=self._id_field_combo.currentText(),
-            name_field=self._name_field_combo.currentText(),
-            indicator_fields=indicator_fields,
-            map_style=map_style,
-            color_ramp_name=ramp_name,
-            # Style details
-            graduated_mode=graduated_mode,
-            graduated_classes=graduated_classes,
-            single_color=single_color,
-            category_field=category_field,
-            
-            base_map=base_map,
-            chart_types=chart_types,
-            output_format=output_format,
-            output_dir=output_dir,
-            dpi=self._dpi_spin.value(),
-            # Phase 11
-            map_opacity=map_opacity,
-            highlight_analyzed=highlight,
-            label_field=label_field,
-            context_layers_config=context_configs,
-            show_overview_map=show_overview_map,
-            show_overview_labels=show_overview_labels,
-            layer_legend_alias=layer_legend_alias,
-
-            custom_title=custom_title,
-            custom_subtitle=self._subtitle_edit.text().strip(),
-            custom_footer=custom_footer,
-            header_color=header_color,
-            footer_color=footer_color,
-            language=language,
-            template_name=template_name,
-            logo_path=logo_path,
-            logo_position=logo_pos,
-            variable_alias=variable_alias,
-        )
-
-    def _generate_reports(self) -> None:
-        """Validate output step and launch async generation."""
-        output_dir = self._dir_edit.text().strip()
-        if not output_dir:
-            self._dir_edit.setText(str(Path.home() / "AutoAtlas_Output"))
-
-        config = self._build_config()
-
-        # Show progress UI
-        self._progress_bar.setVisible(True)
-        self._progress_label.setVisible(True)
-        self._btn_next.setText(self.tr("Cancel"))
-        self._btn_next.setEnabled(True)
-        self._btn_back.setEnabled(False)
-
-        # Disconnect old signal and connect cancel
-        try:
-            self._btn_next.clicked.disconnect()
-        except TypeError:
-            pass
-        self._btn_next.clicked.connect(self._cancel_generation)
-
-        # Initialize batch state
-        self._cancelled = False
-        self._batch_config = config
-        self._batch_paths: list[Path] = []
-        self._batch_errors: list[str] = []
-
-        try:
-            from ..core.report_composer import ReportComposer
-
-            self._composer = ReportComposer()
-
-            # Load data and apply renderer ONCE
-            layer = self._composer._resolve_layer(config.layer_id)
-            self._batch_layer = layer
-            self._composer._data_engine.load(
-                layer, config.id_field, config.name_field,
-                config.indicator_fields,
-            )
-
-            primary = config.indicator_fields[0]
-            self._batch_primary = primary
-
-            # Apply renderer once (includes opacity)
-            self._composer._apply_renderer(layer, config, primary)
-
-            # Pre-compute shared data
-            self._batch_stats = self._composer._data_engine.compute_stats(primary)
-            self._batch_ranking = self._composer._data_engine.compute_ranking(
-                primary, ascending=False,
-            )
-
-            feature_ids = (
-                config.feature_ids
-                or self._composer._data_engine.feature_ids
-            )
-            self._batch_ids = list(feature_ids)
-            self._batch_index = 0
-            self._batch_total = len(self._batch_ids)
-            self._batch_template = config.template or None
-            
-            # Create base layer for the batch
-            self._batch_base_layer = self._composer._create_base_map_layer(config.base_map)
-
-            self._progress_bar.setRange(0, self._batch_total)
-            self._progress_bar.setValue(0)
-
-            config.output_dir.mkdir(parents=True, exist_ok=True)
-
-            # Start async loop — process first report after yielding to event loop
-            from qgis.PyQt.QtCore import QTimer
-            QTimer.singleShot(0, self._process_next_report)
-
-        except Exception as exc:
-            self._on_batch_error(str(exc))
-
-    def _process_next_report(self) -> None:
-        """Process one report, then schedule the next via QTimer."""
-        if self._cancelled:
-            self._on_batch_cancelled()
-            return
-
-        if self._batch_index >= self._batch_total:
-            self._on_batch_complete()
-            return
-
-        fid = self._batch_ids[self._batch_index]
-        name = self._composer._data_engine._names_cache.get(fid, str(fid))
-
-        # Update progress
-        self._progress_bar.setValue(self._batch_index + 1)
+    def update_progress(self, current: int, total: int, name: str) -> None:
+        self._progress_bar.setValue(current)
         self._progress_label.setText(
             self.tr("Generating: {name} ({current}/{total})").format(
                 name=name,
-                current=self._batch_index + 1,
-                total=self._batch_total,
+                current=current,
+                total=total,
             )
         )
 
-        try:
-            path = self._composer._generate_single(
-                self._batch_config,
-                self._batch_layer,
-                self._batch_template or self._composer._resolve_template(),
-                fid,
-                name,
-                self._batch_primary,
-                self._batch_stats,
-                self._batch_ranking,
-                self._batch_base_layer,
-            )
-            self._batch_paths.append(path)
-        except Exception as exc:
-            self._batch_errors.append(f"{name}: {exc}")
-
-        self._batch_index += 1
-
-        # Periodic garbage collection
-        if self._batch_index % 10 == 0:
-            import gc
-            gc.collect()
-
-        # Schedule next report — yields back to Qt event loop
-        from qgis.PyQt.QtCore import QTimer
-        QTimer.singleShot(0, self._process_next_report)
-
-    def _cancel_generation(self) -> None:
-        """Set cancel flag — processing stops on next iteration."""
-        self._cancelled = True
-        self._progress_label.setText(self.tr("Cancelling..."))
-        self._btn_next.setEnabled(False)
-
-    def _on_batch_complete(self) -> None:
+    def _on_batch_complete(self, paths: list, errors: list) -> None:
         """Called when all reports have been processed."""
         self._reset_buttons()
-        n = len(self._batch_paths)
+        n = len(paths)
         msg = self.tr("Generated {n} reports in:\n{dir}").format(
-            n=n, dir=self._batch_config.output_dir,
+            n=n, dir=self._controller._batch_config.output_dir,
         )
-        if self._batch_errors:
-            msg += self.tr("\n\n{e} errors (skipped):").format(e=len(self._batch_errors))
-            msg += "\n" + "\n".join(self._batch_errors[:10])
+        if errors:
+            msg += self.tr("\n\n{e} errors (skipped):").format(e=len(errors))
+            msg += "\n" + "\n".join(errors[:10])
 
         QMessageBox.information(self, self.tr("Success"), msg)
         self.accept()
@@ -1316,7 +1097,7 @@ class WizardDialog(QDialog):
     def _on_batch_cancelled(self) -> None:
         """Called when user cancels mid-batch."""
         self._reset_buttons()
-        n = len(self._batch_paths)
+        n = len(self._controller._batch_paths)
         QMessageBox.information(
             self,
             self.tr("Cancelled"),
@@ -1334,13 +1115,7 @@ class WizardDialog(QDialog):
 
     def _reset_buttons(self) -> None:
         """Restore footer buttons to normal state."""
-        # Cleanup base layer
-        if getattr(self, "_batch_base_layer", None):
-            try:
-                self._composer._project.removeMapLayer(self._batch_base_layer.id())
-            except Exception:
-                pass
-            self._batch_base_layer = None
+        self._controller.cleanup()
 
         self._progress_bar.setVisible(False)
         self._progress_label.setVisible(False)
@@ -1377,25 +1152,7 @@ class WizardDialog(QDialog):
                 QMessageBox.warning(self, self.tr("Warning"), self.tr("Please select at least one indicator."))
                 return
 
-            map_style = self._style_combo.currentData()
-            if not map_style: # Fallback
-                map_style = MapStyle.CHOROPLETH
-                if self._radio_categorical.isChecked() if hasattr(self, '_radio_categorical') else False:
-                    map_style = MapStyle.CATEGORICAL
-
-            ramp = self._ramp_combo.currentText()
-
-            chart_types: List[ChartType] = []
-            # Charts removed (or logic moved to _build_config)
-            # We should reuse _build_config() or logic here
-            # using _build_config() is safer but it returns ReportConfig
-            # So I will replicate logic or call it if possible.
-            # But _build_config accesses all widgets, which is fine since we are in Step 2.
-            
-            # Update: I will use _build_config() logic but with checks?
-            # actually _build_config reads from UI directly.
-            
-            config = self._build_config()
+            config = self._controller.build_config()
             
             # Override for preview (temp dir)
             from dataclasses import replace

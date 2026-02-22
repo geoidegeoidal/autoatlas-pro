@@ -275,8 +275,25 @@ class ReportConfig:
 
     def __post_init__(self) -> None:
         """Validate configuration values."""
+        import re
+        
         if not self.indicator_fields:
             raise ValueError("At least one indicator field is required.")
         if self.dpi < 72 or self.dpi > 1200:
             raise ValueError(f"DPI must be between 72 and 1200, got {self.dpi}.")
+            
+        # Strict Hex Color Validation
+        hex_pattern = re.compile(r"^#(?:[0-9a-fA-F]{3}){1,2}$")
+        if not hex_pattern.match(self.header_color):
+            raise ValueError(f"Invalid header color HEX: {self.header_color}")
+        if not hex_pattern.match(self.footer_color):
+            raise ValueError(f"Invalid footer color HEX: {self.footer_color}")
+        if not hex_pattern.match(self.single_color):
+            raise ValueError(f"Invalid single color HEX: {self.single_color}")
+            
         self.output_dir = Path(self.output_dir)
+
+    @property
+    def is_vertical(self) -> bool:
+        """Check if the selected template is a vertical layout."""
+        return "Vertical" in self.template_name

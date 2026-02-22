@@ -26,7 +26,6 @@ from qgis.core import (
     QgsLayoutItemLegend,
     QgsLayoutItemMap,
     QgsLayoutItemPicture,
-    QgsLayoutItemShape,
     QgsLayoutMeasurement,
     QgsLayoutPoint,
     QgsLayoutSize,
@@ -127,15 +126,16 @@ _DEFAULT_TEMPLATE = TemplateConfig(
     subtitle_rect=(8.0, 17.0, 281.0, 10.0),
     north_arrow_rect=(218.0, 34.0, 12.0, 12.0),
     color_palette={
-        "header_bg": "#1B2838",
-        "footer_bg": "#1B2838",
-        "title_color": "#FFFFFF",
-        "subtitle_color": "#A8DADC",
-        "footer_color": "#8899AA",
-        "map_border": "#2C3E50",
-        "legend_bg": "#F8F9FA",
+        "header_bg": "#0F172A",
+        "footer_bg": "#0F172A",
+        "title_color": "#F8FAFC",
+        "subtitle_color": "#38BDF8",
+        "footer_color": "#94A3B8",
+        "map_border": "#334155",
+        "legend_bg": "#F8FAFC",
+        "map_bg": "#F1F5F9",
     },
-    font_family="Arial",
+    font_family="Segoe UI",
 )
 
 
@@ -232,7 +232,6 @@ class ReportComposer:
         name = self._data_engine._names_cache.get(target_fid, str(target_fid))
 
         # Use replace to carry over ALL settings (opacity, highlight, etc.)
-        from dataclasses import replace
         preview_config = replace(
             config,
             output_format=OutputFormat.PNG,
@@ -341,19 +340,21 @@ class ReportComposer:
         
         self._add_label(
             layout, title_text,
-            rect_mm=(title_x, 3, title_w, 14),
-            font_size=20, bold=True,
+            rect_mm=(title_x, 2, title_w, 16),
+            font_size=24, bold=True,
             halign=Qt.AlignCenter, valign=Qt.AlignVCenter,
-            color=palette.get("title_color", "#FFFFFF"),
+            color=palette.get("title_color", "#F8FAFC"),
+            font_family=template.font_family
         )
 
         subtitle = config.custom_subtitle or config.variable_alias or primary_field
         self._add_label(
             layout, subtitle,
-            rect_mm=(title_x, 16, title_w, 10),
-            font_size=11, bold=False,
+            rect_mm=(title_x, 18, title_w, 8),
+            font_size=13, bold=False,
             halign=Qt.AlignCenter, valign=Qt.AlignVCenter,
-            color=palette.get("subtitle_color", "#A8DADC"),
+            color=palette.get("subtitle_color", "#38BDF8"),
+            font_family=template.font_family
         )
 
         # ══════════════════════════════════════════════════════════════
@@ -380,6 +381,10 @@ class ReportComposer:
         map_item = self._map_renderer._create_map_item(
             layout, (map_x, map_y, map_w, map_h)
         )
+        
+        # Editorial visual aid for missing basemaps
+        map_item.setBackgroundColor(QColor(palette.get("map_bg", "#F1F5F9")))
+        map_item.setBackgroundEnabled(True)
 
         # ── Compute extent based on FID (not expression) ──
         # Use setFilterFid for robustness
@@ -694,9 +699,10 @@ class ReportComposer:
             layout,
             footer_text,
             rect_mm=(8, footer_y + 1, pw - 16, footer_h - 2),
-            font_size=7, bold=False,
+            font_size=8, bold=False,
             halign=Qt.AlignCenter, valign=Qt.AlignVCenter,
-            color=palette.get("footer_color", "#8899AA"),
+            color=palette.get("footer_color", "#94A3B8"),
+            font_family=template.font_family
         )
 
         # ══════════════════════════════════════════════════════════════
@@ -793,6 +799,21 @@ class ReportComposer:
         # Encode critical characters that conflict with QGIS key=value parsing.
         # We preserve protocol chars (/:?=) but MUST encode '&' to '%26'.
         encoded_url = quote(raw_url, safe="/:?=")
+        
+        # Graceful Degradation: Fast network ping (Circuit Breaker for Basemaps)
+        import urllib.request
+        from urllib.error import URLError
+        import socket
+        
+        test_url = raw_url.format(z='0', x='0', y='0', q='0')
+        try:
+            req = urllib.request.Request(test_url, headers={'User-Agent': 'QGIS/AutoAtlasPro'})
+            urllib.request.urlopen(req, timeout=1.5)
+        except (URLError, socket.timeout):
+            # Cannot reach tile server, fallback immediately to map_bg 
+            # to preserve workflow stability.
+            return None
+
         uri = f"type=xyz&url={encoded_url}&zmax={zmax}&zmin={zmin}"
 
         layer = QgsRasterLayer(uri, f"_basemap_{bm_type.name}", "wms")
@@ -845,6 +866,7 @@ class ReportComposer:
         halign: int = Qt.AlignLeft,
         valign: int = Qt.AlignVCenter,
         color: str = "#000000",
+        font_family: str = "Segoe UI",
     ) -> QgsLayoutItemLabel:
         """Add a styled text label to the layout."""
         label = QgsLayoutItemLabel(layout)
@@ -852,7 +874,7 @@ class ReportComposer:
         label.attemptMove(QgsLayoutPoint(rect_mm[0], rect_mm[1]))
         label.attemptResize(QgsLayoutSize(rect_mm[2], rect_mm[3]))
 
-        font = QFont("Arial", font_size)
+        font = QFont(font_family, font_size)
         font.setBold(bold)
         label.setFont(font)
         label.setHAlign(halign)

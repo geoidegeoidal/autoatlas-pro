@@ -23,13 +23,15 @@ Perfect for:
 | Feature | Description |
 |---------|-------------|
 | **3-Step Wizard** | Intuitive guided workflow: Data → Style → Generate |
+| **Dark Corporate UI** | Beautiful *Neo-Brutalist* Dark Theme with opacity micro-animations |
 | **Smart Highlighting** | Automatically highlights the analyzed feature with a dashed outline against the context |
 | **Context Layers** | Overlay additional reference layers (roads, rivers) with custom opacity and ordering |
 | **Flexible Layouts** | Support for **A4 Vertical** and **A4 Landscape** orientations |
+| **Magazine Styling** | High contrast palettes, Segoe UI typography and dynamic slate backgrounds for empty tiles |
 | **Custom Branding** | Add your organization's **Logo**, custom title, and footer text |
 | **Bilingual UI** | Instant switching between **English** and **Spanish** |
 | **Statistical Charts** | Distribution histogram, ranking lollipop, proportion donut, summary table |
-| **Batch Generation** | Generate reports for all territorial units in one click |
+| **Resilient Batch** | Built-in *Circuit Breaker* and *Graceful Degradation* timeouts to prevent QGIS crashes |
 | **PDF & PNG Export** | Configurable DPI (72–1200) |
 | **Dependency Installer** | Built-in one-click installer for optional packages (pandas, plotly) |
 
@@ -77,16 +79,18 @@ AutoAtlas Pro works out of the box with matplotlib (bundled with QGIS). For prem
 autoatlas-pro/
 ├── plugin.py              # QGIS plugin lifecycle
 ├── core/
-│   ├── models.py          # Type-safe dataclasses
+│   ├── models.py          # Strict-typing dataclasses
 │   ├── data_engine.py     # Statistics & rankings
 │   ├── map_renderer.py    # Thematic map generation
 │   ├── chart_engine.py    # Dual-backend charts
-│   ├── report_composer.py # Pipeline orchestration
+│   ├── report_composer.py # Resilience & Pipeline orchestration
 │   └── dependency_manager.py
 ├── ui/
-│   ├── wizard_dialog.py   # 3-step wizard
+│   ├── wizard_controller.py # Logic delegation (MVC)
+│   ├── wizard_dialog.py   # PyQt Dark Corporate UI
+│   ├── theme.py           # QSS Global Stylesheet
 │   └── dependency_dialog.py
-├── templates/             # Report layout definitions
+├── templates/             # Premium layout definitions
 └── i18n/                  # Translation files
 ```
 
