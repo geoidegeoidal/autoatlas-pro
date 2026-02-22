@@ -1,190 +1,187 @@
-"""Global Qt Style Sheets (QSS) for AutoAtlas Pro UI."""
+"""Global Qt Style Sheets (QSS) for AutoAtlas Pro UI.
+
+Design principles:
+- Only style OUR dialog's widgets. Never use bare `QWidget {}` selectors
+  as they bleed into QGIS-native widgets (QgsColorButton, QgsOpacityWidget,
+  QgsFieldComboBox) and corrupt their rendering.
+- All colors target WCAG AA contrast ratio (4.5:1 minimum for text).
+- No QGraphicsOpacityEffect: it causes text-ghosting artefacts in Qt
+  when applied to container widgets with complex children.
+"""
 
 DARK_CORPORATE_QSS = """
-/* Global Widget styling to prevent white backgrounds and default fonts */
-QWidget {
-    font-family: "Segoe UI", "Inter", sans-serif;
-    color: #F8FAFC;
+/* ─── Dialog root ─── */
+QDialog {
+    background-color: #1E293B;
+    color: #F1F5F9;
+    font-family: "Segoe UI", sans-serif;
+    font-size: 13px;
 }
 
-QDialog, QStackedWidget, QScrollArea, QWidget#scrollAreaWidgetContents {
+/* ─── Header frame ─── */
+QFrame#header_frame {
     background-color: #0F172A;
 }
 
-/* Base widgets inside the stack/scroll area that might have default backgrounds */
-QFrame {
+/* ─── Stacked pages & scroll areas ─── */
+QStackedWidget {
+    background-color: #1E293B;
+}
+QScrollArea {
+    background-color: #1E293B;
     border: none;
 }
-
-/* Group Boxes: Clean corporate cards */
-QGroupBox {
-    border: 1px solid #334155;
-    border-radius: 8px;
-    margin-top: 24px;
-    padding-top: 24px;
-    font-weight: bold;
-    color: #F8FAFC;
+QScrollArea > QWidget > QWidget {
     background-color: #1E293B;
+}
+
+/* ─── Group Boxes ─── */
+QGroupBox {
+    background-color: #273548;
+    border: 1px solid #3B4F6B;
+    border-radius: 6px;
+    margin-top: 20px;
+    padding: 20px 12px 12px 12px;
+    font-weight: bold;
+    font-size: 13px;
+    color: #F1F5F9;
 }
 QGroupBox::title {
     subcontrol-origin: margin;
     subcontrol-position: top left;
-    left: 16px;
-    padding: 0 4px;
-    color: #38BDF8;
+    left: 12px;
+    padding: 2px 6px;
+    color: #7DD3FC;
+    background-color: #273548;
+    border-radius: 3px;
 }
 
-/* Typography & Labels */
+/* ─── Labels ─── */
 QLabel {
-    color: #F8FAFC;
-    font-size: 13px;
+    color: #F1F5F9;
     background: transparent;
 }
 
-/* Inputs & Comboboxes */
+/* ─── Inputs ─── */
 QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox {
-    background-color: #0F172A;
+    background-color: #1E293B;
     border: 1px solid #475569;
-    border-radius: 6px;
-    padding: 8px 12px;
-    color: #F8FAFC;
+    border-radius: 4px;
+    padding: 6px 10px;
+    color: #F1F5F9;
     selection-background-color: #0284C7;
-    font-size: 13px;
 }
 QComboBox:hover, QLineEdit:hover, QSpinBox:hover, QDoubleSpinBox:hover {
-    border: 1px solid #64748B;
+    border-color: #7DD3FC;
 }
 QComboBox:focus, QLineEdit:focus {
-    border: 2px solid #38BDF8;
+    border: 1px solid #38BDF8;
 }
 QComboBox::drop-down {
     border: none;
-    width: 24px;
+    width: 22px;
 }
 QComboBox QAbstractItemView {
-    background-color: #1E293B;
-    color: #F8FAFC;
+    background-color: #273548;
+    color: #F1F5F9;
     selection-background-color: #0284C7;
-    border: 1px solid #334155;
+    border: 1px solid #475569;
 }
 
-/* Standard Buttons */
+/* ─── Buttons ─── */
 QPushButton {
     background-color: #334155;
     border: 1px solid #475569;
-    color: #F8FAFC;
-    padding: 8px 16px;
-    border-radius: 6px;
-    font-weight: 600;
-    font-size: 13px;
+    color: #F1F5F9;
+    padding: 7px 14px;
+    border-radius: 4px;
+    font-weight: bold;
 }
 QPushButton:hover {
     background-color: #475569;
-    border: 1px solid #94A3B8;
+    border-color: #7DD3FC;
 }
 QPushButton:pressed {
     background-color: #1E293B;
 }
 QPushButton:disabled {
-    background-color: #0F172A;
     color: #64748B;
-    border: 1px solid #334155;
+    background-color: #1E293B;
+    border-color: #334155;
 }
 
-/* Primary Generate Button Override (Done inline usually, but base class here) */
-QPushButton#primary_action {
-    background-color: #0284C7;
-    color: white;
-    border: none;
-    font-size: 14px;
-}
-QPushButton#primary_action:hover {
-    background-color: #0369A1;
-}
-
-/* Tables & Lists */
+/* ─── Tables & Lists ─── */
 QTableWidget, QListWidget {
-    background-color: #0F172A;
-    color: #E2E8F0;
+    background-color: #1E293B;
+    alternate-background-color: #273548;
+    color: #F1F5F9;
     gridline-color: #334155;
-    border: 1px solid #334155;
-    border-radius: 6px;
+    border: 1px solid #3B4F6B;
+    border-radius: 4px;
 }
 QHeaderView::section {
-    background-color: #1E293B;
-    color: #94A3B8;
-    padding: 6px;
-    border: 1px solid #334155;
+    background-color: #273548;
+    color: #CBD5E1;
+    padding: 5px;
+    border: 1px solid #3B4F6B;
     font-weight: bold;
 }
-
 QListWidget::item {
-    padding: 4px;
-}
-QListWidget::item:hover {
-    background-color: #1E293B;
+    padding: 3px;
 }
 QListWidget::item:selected {
     background-color: #0284C7;
-    color: #F8FAFC;
 }
 
-/* Scrollbars */
+/* ─── Scrollbars ─── */
 QScrollBar:vertical {
-    background: #0F172A;
-    width: 14px;
-    margin: 0px;
+    background: #1E293B;
+    width: 12px;
 }
 QScrollBar::handle:vertical {
     background: #475569;
     min-height: 20px;
-    border-radius: 7px;
+    border-radius: 6px;
     margin: 2px;
 }
 QScrollBar::handle:vertical:hover {
     background: #64748B;
 }
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: none;
     height: 0px;
 }
 
-/* Checkboxes and Radio buttons */
+/* ─── Checkboxes & Radios ─── */
 QCheckBox, QRadioButton {
-    color: #E2E8F0;
-    spacing: 8px;
+    color: #F1F5F9;
+    spacing: 6px;
 }
 QCheckBox::indicator, QRadioButton::indicator {
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
     border: 1px solid #475569;
-    border-radius: 4px;
-    background: #0F172A;
+    border-radius: 3px;
+    background: #1E293B;
 }
-QRadioButton::indicator {
-    border-radius: 9px;
-}
-QCheckBox::indicator:hover, QRadioButton::indicator:hover {
-    border: 1px solid #38BDF8;
-}
-QCheckBox::indicator:checked {
+QRadioButton::indicator { border-radius: 8px; }
+QCheckBox::indicator:checked, QRadioButton::indicator:checked {
     background: #0284C7;
-    image: url(:/images/themes/default/algorithms/mAlgorithmCheckGeometry.svg); /* Native QGIS icon fallback */
-}
-QRadioButton::indicator:checked {
-    background: #0284C7;
+    border-color: #38BDF8;
 }
 
-/* Progress Bar */
+/* ─── Progress Bar ─── */
 QProgressBar {
     border: 1px solid #334155;
-    border-radius: 6px;
-    background-color: #0F172A;
+    border-radius: 4px;
+    background-color: #1E293B;
     text-align: center;
-    color: white;
+    color: #F1F5F9;
     font-weight: bold;
 }
 QProgressBar::chunk {
     background-color: #38BDF8;
-    border-radius: 5px;
+    border-radius: 3px;
 }
 """

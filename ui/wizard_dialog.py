@@ -26,7 +26,7 @@ from qgis.gui import (
     QgsOpacityWidget,
     QgsMapLayerComboBox,
 )
-from qgis.PyQt.QtCore import QCoreApplication, QSize, Qt, QPropertyAnimation, QEasingCurve
+from qgis.PyQt.QtCore import QCoreApplication, QSize, Qt
 from qgis.PyQt.QtGui import QColor, QFont, QIcon, QPixmap
 from qgis.PyQt.QtWidgets import (
     QCheckBox,
@@ -35,7 +35,7 @@ from qgis.PyQt.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
     QFrame,
-    QGraphicsOpacityEffect,
+
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -219,12 +219,6 @@ class WizardDialog(QDialog):
         self._stack.addWidget(self._build_step_style())
         self._stack.addWidget(self._build_step_output())
         
-        self._opacity_eff = QGraphicsOpacityEffect(self._stack)
-        self._stack.setGraphicsEffect(self._opacity_eff)
-        self._anim = QPropertyAnimation(self._opacity_eff, b"opacity")
-        self._anim.setDuration(300)
-        self._anim.setEasingCurve(QEasingCurve.InOutQuad)
-        
         root.addWidget(self._stack, stretch=1)
 
         # --- Footer with navigation buttons ---
@@ -241,9 +235,8 @@ class WizardDialog(QDialog):
     def _build_header(self) -> QWidget:
         """Build the top header with step progress indicators."""
         header = QFrame()
-        header.setStyleSheet(
-            "QFrame { background: #0f3460; padding: 16px; }"
-        )
+        header.setObjectName("header_frame")
+        header.setFixedHeight(56)
         layout = QHBoxLayout(header)
 
         self._step_labels: list[QLabel] = []
@@ -1039,11 +1032,6 @@ class WizardDialog(QDialog):
         self._current_step += 1
         self._stack.setCurrentIndex(self._current_step)
         self._btn_back.setEnabled(True)
-        
-        self._anim.stop()
-        self._anim.setStartValue(0.0)
-        self._anim.setEndValue(1.0)
-        self._anim.start()
 
         self._update_step_indicator()
         self._update_ui_text()
@@ -1055,12 +1043,7 @@ class WizardDialog(QDialog):
         self._current_step -= 1
         self._stack.setCurrentIndex(self._current_step)
         self._btn_back.setEnabled(self._current_step > 0)
-        
-        self._anim.stop()
-        self._anim.setStartValue(0.0)
-        self._anim.setEndValue(1.0)
-        self._anim.start()
-        
+
         self._update_step_indicator()
         self._update_ui_text()
 
