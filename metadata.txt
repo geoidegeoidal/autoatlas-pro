@@ -3,8 +3,8 @@ name=AutoAtlas Pro
 qgisMinimumVersion=3.28
 description=Automated cartographic report generator. Create professional atlas reports with thematic maps in one click.
 version=1.2.0
-author=AutoAtlas Team
-email=autoatlas.pro@gmail.com
+author=Jorge Ulloa Roa
+email=jorge.ulloa.roa@gmail.com
 license=GNU General Public License v3.0
 
 about=AutoAtlas Pro automates the generation of professional cartographic reports with thematic maps. Perfect for census data, demographic analysis, municipal reports, and academic research. Features a Dark Corporate UI theme, resilient batch generation with Circuit Breaker pattern, and Graceful Degradation for offline basemaps. Supports PDF and PNG export with customizable templates.
