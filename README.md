@@ -10,7 +10,7 @@
 
 ## 🚀 What is AutoAtlas Pro?
 
-AutoAtlas Pro automates the generation of professional cartographic reports combining **thematic maps**, **statistical charts**, and **summary tables**. Generate hundreds of territorial reports in minutes, not days.
+AutoAtlas Pro automates the generation of professional cartographic reports. Generate hundreds of territorial reports in minutes, not days.
 
 Perfect for:
 - 📊 Census and demographic analysis
