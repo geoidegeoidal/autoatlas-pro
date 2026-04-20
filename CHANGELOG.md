@@ -5,6 +5,17 @@ Todos los cambios notables de este proyecto serán documentados en este archivo.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto se adhiere a un [Versionado Semántico](https://semver.org/).
 
+## [1.3.0] - 2026-04-20
+
+### ✨ Añadido (Added)
+- **Soporte Nativo Qt6 / QGIS 4.x:** Refactorización profunda para compatibilidad absoluta con la arquitectura de PyQt6. El plugin ahora funciona de forma fluida y sin *warnings* en entornos híbridos (PyQt5/PyQt6) con `qgisMaximumVersion=4.99`.
+- **Módulo de Compatibilidad (`qt_compat.py`):** Inyección de un *shim* de compatibilidad dinámica que enmascara las diferencias estructurales de enumeradores (enums) de Widgets, Banderas (Flags) y Estados entre ambas ramas tecnológicas.
+
+### 🪲 Solucionado (Fixed)
+- Resolución del crash crítico provocado por acceso directo a atributos de `QFont` y `QAbstractItemView` removidos en PyQt6 (ej. `QFont.Bold`, `QListWidget.MultiSelection`).
+- Resolución de incompatibilidad de llamadas de abstracción C++ como `QgsWkbTypes` garantizando el alcance global.
+- Normalización del Event Loop de UI reemplazando métodos obsoletos (`QDialog.exec_()`).
+
 ## [1.2.0] - 2026-02-22
 
 ### ✨ Añadido (Added)

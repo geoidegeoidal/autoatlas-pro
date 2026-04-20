@@ -1,8 +1,9 @@
 [general]
 name=AutoAtlas Pro
-qgisMinimumVersion=3.28
+qgisMinimumVersion=3.34
+qgisMaximumVersion=4.99
 description=Automated cartographic report generator. Create professional atlas reports with thematic maps in one click.
-version=1.2.0
+version=1.3.0
 author=Jorge Ulloa Roa
 email=jorge.ulloa.roa@gmail.com
 license=GNU General Public License v3.0
@@ -18,11 +19,18 @@ tags=atlas,report,cartography,census,batch,pdf,maps,thematic
 category=Cartography
 icon=icon.svg
 
-experimental=False
+experimental=True
 deprecated=False
-supportsQt6=True
 
 changelog=
+    1.3.0 - QGIS 4.x / Qt6 Compatibility
+        * Full compatibility with QGIS 3.28+ through QGIS 4.x (Qt6)
+        * Replaced deprecated setMode() with setClassificationMethod()
+        * Migrated layout labels from setFont/setFontColor to QgsTextFormat
+        * Fixed scoped enum access for Qt6 (QgsMapLayerProxyModel, QgsWkbTypes)
+        * Removed obsolete supportsQt6 flag, added qgisMaximumVersion=4.99
+        * Replaced exec_() with exec() for Qt6 compatibility
+        * Scale bar and legend font APIs updated to QgsTextFormat
     1.2.0 - Dark Corporate UI & Resilient Architecture
         * MVC refactoring: WizardController separation
         * Dark Corporate QSS theme with WCAG AA contrast

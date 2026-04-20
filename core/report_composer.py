@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
+from .qt_compat import ALIGN_CENTER, ALIGN_LEFT, ALIGN_RIGHT, ALIGN_VCENTER, CHECKED, UNCHECKED, ITEM_IS_USER_CHECKABLE, ITEM_IS_ENABLED, WAIT_CURSOR, USER_ROLE
 from qgis.core import (
     Qgis,
     QgsCoordinateReferenceSystem,
@@ -34,6 +35,7 @@ from qgis.core import (
     QgsProject,
     QgsRasterLayer,
     QgsRectangle,
+    QgsTextFormat,
     QgsVectorLayer,
 )
 from qgis.PyQt.QtCore import Qt
@@ -343,7 +345,7 @@ class ReportComposer:
             layout, title_text,
             rect_mm=(title_x, 2, title_w, 16),
             font_size=24, bold=True,
-            halign=Qt.AlignCenter, valign=Qt.AlignVCenter,
+            halign=ALIGN_CENTER, valign=ALIGN_VCENTER,
             color=palette.get("title_color", "#F8FAFC"),
             font_family=template.font_family
         )
@@ -353,7 +355,7 @@ class ReportComposer:
             layout, subtitle,
             rect_mm=(title_x, 18, title_w, 8),
             font_size=13, bold=False,
-            halign=Qt.AlignCenter, valign=Qt.AlignVCenter,
+            halign=ALIGN_CENTER, valign=ALIGN_VCENTER,
             color=palette.get("subtitle_color", "#38BDF8"),
             font_family=template.font_family
         )
@@ -701,7 +703,7 @@ class ReportComposer:
             footer_text,
             rect_mm=(8, footer_y + 1, pw - 16, footer_h - 2),
             font_size=8, bold=False,
-            halign=Qt.AlignCenter, valign=Qt.AlignVCenter,
+            halign=ALIGN_CENTER, valign=ALIGN_VCENTER,
             color=palette.get("footer_color", "#94A3B8"),
             font_family=template.font_family
         )
@@ -839,7 +841,11 @@ class ReportComposer:
     ) -> QgsLayoutItemShape:
         """Add a filled rectangle (background band)."""
         shape = QgsLayoutItemShape(layout)
-        shape.setShapeType(QgsLayoutItemShape.Rectangle)
+        try:
+            shape.setShapeType(QgsLayoutItemShape.Shape.Rectangle)
+        except AttributeError:
+            shape.setShapeType(QgsLayoutItemShape.Rectangle)
+
         shape.attemptMove(QgsLayoutPoint(rect_mm[0], rect_mm[1]))
         shape.attemptResize(QgsLayoutSize(rect_mm[2], rect_mm[3]))
 
@@ -864,8 +870,8 @@ class ReportComposer:
         rect_mm: Tuple[float, float, float, float],
         font_size: int = 12,
         bold: bool = False,
-        halign: int = Qt.AlignLeft,
-        valign: int = Qt.AlignVCenter,
+        halign: int = ALIGN_LEFT,
+        valign: int = ALIGN_VCENTER,
         color: str = "#000000",
         font_family: str = "Segoe UI",
     ) -> QgsLayoutItemLabel:
@@ -875,12 +881,21 @@ class ReportComposer:
         label.attemptMove(QgsLayoutPoint(rect_mm[0], rect_mm[1]))
         label.attemptResize(QgsLayoutSize(rect_mm[2], rect_mm[3]))
 
+        fmt = QgsTextFormat()
         font = QFont(font_family, font_size)
         font.setBold(bold)
-        label.setFont(font)
-        label.setHAlign(halign)
-        label.setVAlign(valign)
-        label.setFontColor(QColor(color))
+        fmt.setFont(font)
+        fmt.setSize(font_size)
+        fmt.setColor(QColor(color))
+        label.setTextFormat(fmt)
+        
+        try:
+            label.setHAlign(halign)
+            label.setVAlign(valign)
+        except AttributeError:
+            label.setHAlign(halign)
+            label.setVAlign(valign)
+
         label.setBackgroundEnabled(False)
         label.setFrameEnabled(False)
 

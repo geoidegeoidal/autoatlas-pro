@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import List, Optional
 
+from ..core.qt_compat import ALIGN_CENTER, ALIGN_LEFT, ALIGN_RIGHT, ALIGN_VCENTER, CHECKED, UNCHECKED, ITEM_IS_USER_CHECKABLE, ITEM_IS_ENABLED, WAIT_CURSOR, USER_ROLE
 from qgis.PyQt.QtCore import Qt, QTimer
 from qgis.PyQt.QtWidgets import QApplication
 
@@ -50,7 +51,7 @@ class WizardController:
             
         has_indic = False
         for i in range(self.view._indicator_list.count()):
-            if self.view._indicator_list.item(i).checkState() == Qt.Checked:
+            if self.view._indicator_list.item(i).checkState() == CHECKED:
                 has_indic = True
                 break
         
@@ -66,7 +67,7 @@ class WizardController:
         indicator_fields = []
         for i in range(self.view._indicator_list.count()):
             item = self.view._indicator_list.item(i)
-            if item.checkState() == Qt.Checked:
+            if item.checkState() == CHECKED:
                 indicator_fields.append(item.text())
 
         map_style = self.view._style_combo.currentData()
@@ -82,8 +83,8 @@ class WizardController:
         context_configs: List[ContextLayerConfig] = []
         for i in range(self.view._ctx_table.rowCount()):
             chk = self.view._ctx_table.item(i, 0)
-            if chk and chk.checkState() == Qt.Checked:
-                lid = chk.data(Qt.UserRole)
+            if chk and chk.checkState() == CHECKED:
+                lid = chk.data(USER_ROLE)
                 alias = (self.view._ctx_table.item(i, 2).text() or "").strip()
                 spin = self.view._ctx_table.cellWidget(i, 3)
                 opa = spin.value() if spin else 1.0

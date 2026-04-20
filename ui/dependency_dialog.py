@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ..core.qt_compat import ALIGN_CENTER, ALIGN_LEFT, ALIGN_RIGHT, ALIGN_VCENTER, CHECKED, UNCHECKED, ITEM_IS_USER_CHECKABLE, ITEM_IS_ENABLED, WAIT_CURSOR, USER_ROLE, MULTI_SELECTION, NO_FRAME, STYLED_PANEL, RESIZE_TO_CONTENTS, STRETCH, NO_DRAG_DROP, POLICY_MINIMUM, POLICY_EXPANDING
 from qgis.PyQt.QtCore import QSize, Qt, QThread, pyqtSignal
 from qgis.PyQt.QtGui import QFont, QIcon
 from qgis.PyQt.QtWidgets import (
@@ -80,7 +81,7 @@ class _DepCard(QFrame):
     def __init__(self, dep: DependencyInfo, status: DepStatus) -> None:
         super().__init__()
         self._dep = dep
-        self.setFrameShape(QFrame.StyledPanel)
+        self.setFrameShape(STYLED_PANEL)
         self.setStyleSheet(
             """
             _DepCard {
@@ -119,7 +120,7 @@ class _DepCard(QFrame):
 
         # Right: status
         self._status_label = QLabel()
-        self._status_label.setAlignment(Qt.AlignCenter)
+        self._status_label.setAlignment(ALIGN_CENTER)
         self._status_label.setMinimumWidth(120)
         layout.addWidget(self._status_label)
 
@@ -209,7 +210,7 @@ class DependencyDialog(QDialog):
         root.addWidget(self._status_msg)
 
         # Spacer
-        root.addItem(QSpacerItem(0, 0, QSizePolicy.Minimum, QSizePolicy.Expanding))
+        root.addItem(QSpacerItem(0, 0, POLICY_MINIMUM, POLICY_EXPANDING))
 
         # Buttons
         btn_layout = QHBoxLayout()
@@ -222,7 +223,7 @@ class DependencyDialog(QDialog):
         btn_layout.addWidget(self._skip_btn)
 
         btn_layout.addItem(
-            QSpacerItem(0, 0, QSizePolicy.Expanding, QSizePolicy.Minimum)
+            QSpacerItem(0, 0, POLICY_EXPANDING, POLICY_MINIMUM)
         )
 
         self._install_btn = QPushButton("⬇ Install All")

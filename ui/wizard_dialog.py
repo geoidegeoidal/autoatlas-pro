@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, List, Optional
 
 from .wizard_controller import WizardController
 
+from ..core.qt_compat import ALIGN_CENTER, ALIGN_LEFT, ALIGN_RIGHT, ALIGN_VCENTER, CHECKED, UNCHECKED, ITEM_IS_USER_CHECKABLE, ITEM_IS_ENABLED, WAIT_CURSOR, USER_ROLE, MULTI_SELECTION, NO_FRAME, STYLED_PANEL, RESIZE_TO_CONTENTS, STRETCH, NO_DRAG_DROP, POLICY_MINIMUM, POLICY_EXPANDING
 from qgis.core import (
     QgsMapLayerProxyModel,
     QgsProject,
@@ -247,8 +248,9 @@ class WizardDialog(QDialog):
         ]
         for i, text in enumerate(steps):
             lbl = QLabel(text)
-            lbl.setAlignment(Qt.AlignCenter)
-            font = QFont("Arial", 12, QFont.Bold if i == 0 else QFont.Normal)
+            lbl.setAlignment(ALIGN_CENTER)
+            font = QFont("Arial", 12)
+            font.setBold(i == 0)
             lbl.setFont(font)
             lbl.setStyleSheet(
                 "color: white;" if i == 0 else "color: rgba(255,255,255,0.5);"
@@ -312,11 +314,20 @@ class WizardDialog(QDialog):
 
         from qgis.gui import QgsMapLayerComboBox
         self._layer_combo = QgsMapLayerComboBox()
-        self._layer_combo.setFilters(
-            QgsMapLayerProxyModel.PolygonLayer |
-            QgsMapLayerProxyModel.PointLayer |
-            QgsMapLayerProxyModel.LineLayer
-        )
+        # Qt6/QGIS 4.x uses scoped enums: Filter.PolygonLayer
+        try:
+            _filters = (
+                QgsMapLayerProxyModel.Filter.PolygonLayer |
+                QgsMapLayerProxyModel.Filter.PointLayer |
+                QgsMapLayerProxyModel.Filter.LineLayer
+            )
+        except AttributeError:
+            _filters = (
+                QgsMapLayerProxyModel.PolygonLayer |
+                QgsMapLayerProxyModel.PointLayer |
+                QgsMapLayerProxyModel.LineLayer
+            )
+        self._layer_combo.setFilters(_filters)
         self._layer_combo.layerChanged.connect(self._on_layer_changed)
         grp_layout.addWidget(self._layer_combo)
         layout.addWidget(self._grp_layer)
@@ -352,12 +363,12 @@ class WizardDialog(QDialog):
         self._lbl_indicators = QLabel(self.tr("Indicator Fields (select one or more):"))
         fields_layout.addWidget(self._lbl_indicators)
         self._indicator_list = QListWidget()
-        self._indicator_list.setSelectionMode(QListWidget.MultiSelection)
+        self._indicator_list.setSelectionMode(MULTI_SELECTION)
         self._indicator_list.setMaximumHeight(150)
         fields_layout.addWidget(self._indicator_list)
 
         layout.addWidget(self._grp_fields)
-        layout.addItem(QSpacerItem(0, 0, QSizePolicy.Minimum, QSizePolicy.Expanding))
+        layout.addItem(QSpacerItem(0, 0, POLICY_MINIMUM, POLICY_EXPANDING))
 
         # Populate if a layer is already selected
         self._on_layer_changed(self._layer_combo.currentLayer())
@@ -405,13 +416,13 @@ class WizardDialog(QDialog):
             # Only show numeric fields in indicator list
             if f.isNumeric():
                 item = QListWidgetItem(fname)
-                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-                item.setCheckState(Qt.Unchecked)
+                item.setFlags(item.flags() | ITEM_IS_USER_CHECKABLE)
+                item.setCheckState(UNCHECKED)
                 self._indicator_list.addItem(item)
         
         # Check default item (first one)
         if self._indicator_list.count() > 0:
-            self._indicator_list.item(0).setCheckState(Qt.Checked)
+            self._indicator_list.item(0).setCheckState(CHECKED)
 
     # ------------------------------------------------------------------
     # Step 2: Style Configuration
@@ -424,7 +435,7 @@ class WizardDialog(QDialog):
         
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setFrameShape(NO_FRAME)
         content = QWidget()
         scroll_layout = QVBoxLayout(content)
         scroll_layout.setContentsMargins(24, 24, 24, 24)
@@ -607,13 +618,13 @@ class WizardDialog(QDialog):
             self.tr("Legend Alias"), self.tr("Opacity"),
         ])
         hdr = self._ctx_table.horizontalHeader()
-        hdr.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        hdr.setSectionResizeMode(1, QHeaderView.Stretch)
-        hdr.setSectionResizeMode(2, QHeaderView.Stretch)
-        hdr.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(0, RESIZE_TO_CONTENTS)
+        hdr.setSectionResizeMode(1, STRETCH)
+        hdr.setSectionResizeMode(2, STRETCH)
+        hdr.setSectionResizeMode(3, RESIZE_TO_CONTENTS)
         self._ctx_table.setFixedHeight(120)
         self._ctx_table.verticalHeader().setVisible(False)
-        self._ctx_table.setDragDropMode(QTableWidget.NoDragDrop)
+        self._ctx_table.setDragDropMode(NO_DRAG_DROP)
 
         # Table + reorder buttons side by side
         ctx_row = QHBoxLayout()
@@ -794,7 +805,7 @@ class WizardDialog(QDialog):
         self._progress_label.setStyleSheet("font-style: italic; color: gray;")
         layout.addWidget(self._progress_label)
 
-        layout.addItem(QSpacerItem(0, 0, QSizePolicy.Minimum, QSizePolicy.Expanding))
+        layout.addItem(QSpacerItem(0, 0, POLICY_MINIMUM, POLICY_EXPANDING))
         return page
 
     def _browse_output_dir(self) -> None:
@@ -819,7 +830,7 @@ class WizardDialog(QDialog):
         self._btn_back.clicked.connect(self._go_back)
         layout.addWidget(self._btn_back)
 
-        layout.addItem(QSpacerItem(0, 0, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        layout.addItem(QSpacerItem(0, 0, POLICY_EXPANDING, POLICY_MINIMUM))
 
         self._btn_next = QPushButton(self.tr("Next →"))
         self._btn_next.setStyleSheet(
@@ -990,14 +1001,14 @@ class WizardDialog(QDialog):
 
                     # Col 0: Checkbox
                     chk_item = QTableWidgetItem()
-                    chk_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-                    chk_item.setCheckState(Qt.Unchecked)
-                    chk_item.setData(Qt.UserRole, lyr.id())
+                    chk_item.setFlags(ITEM_IS_USER_CHECKABLE | ITEM_IS_ENABLED)
+                    chk_item.setCheckState(UNCHECKED)
+                    chk_item.setData(USER_ROLE, lyr.id())
                     self._ctx_table.setItem(row, 0, chk_item)
 
                     # Col 1: Layer name (read-only)
                     name_item = QTableWidgetItem(lyr.name())
-                    name_item.setFlags(Qt.ItemIsEnabled)
+                    name_item.setFlags(ITEM_IS_ENABLED)
                     self._ctx_table.setItem(row, 1, name_item)
 
                     # Col 2: Legend Alias (editable)
@@ -1128,7 +1139,7 @@ class WizardDialog(QDialog):
             indicators = []
             for i in range(self._indicator_list.count()):
                 item = self._indicator_list.item(i)
-                if item.checkState() == Qt.Checked:
+                if item.checkState() == CHECKED:
                     indicators.append(item.text())
             
             if not indicators:
@@ -1149,7 +1160,7 @@ class WizardDialog(QDialog):
             # 2. Generate
             from qgis.PyQt.QtWidgets import QApplication
             
-            QApplication.setOverrideCursor(Qt.WaitCursor)
+            QApplication.setOverrideCursor(WAIT_CURSOR)
             try:
                 from ..core.report_composer import ReportComposer
                 composer = ReportComposer()
@@ -1161,7 +1172,7 @@ class WizardDialog(QDialog):
 
             # 3. Show Dialog
             dlg = PreviewDialog(str(preview_path), self)
-            dlg.exec_()
+            dlg.exec()
 
         except Exception as exc:
             import traceback
@@ -1182,10 +1193,10 @@ class PreviewDialog(QDialog):
         
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setAlignment(Qt.AlignCenter)
+        scroll.setAlignment(ALIGN_CENTER)
         
         self.img_label = QLabel()
-        self.img_label.setAlignment(Qt.AlignCenter)
+        self.img_label.setAlignment(ALIGN_CENTER)
         
         pixmap = QPixmap(image_path)
         if not pixmap.isNull():
@@ -1198,4 +1209,4 @@ class PreviewDialog(QDialog):
         
         btn_close = QPushButton(self.tr("Close"))
         btn_close.clicked.connect(self.close)
-        layout.addWidget(btn_close, alignment=Qt.AlignRight)
+        layout.addWidget(btn_close, alignment=ALIGN_RIGHT)

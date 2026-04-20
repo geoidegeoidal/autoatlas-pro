@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import List, Optional, Tuple
 
+from .qt_compat import ALIGN_CENTER, ALIGN_LEFT, ALIGN_RIGHT, ALIGN_VCENTER, CHECKED, UNCHECKED, ITEM_IS_USER_CHECKABLE, ITEM_IS_ENABLED, WAIT_CURSOR, USER_ROLE
 from qgis.core import (
     Qgis,
     QgsCategorizedSymbolRenderer,
@@ -26,16 +27,39 @@ from qgis.core import (
     QgsProject,
     QgsRectangle,
     QgsRendererCategory,
+    QgsRendererRange,
     QgsSingleSymbolRenderer,
     QgsStyle,
     QgsSymbol,
+    QgsTextFormat,
     QgsUnitTypes,
     QgsVectorLayer,
+    QgsClassificationEqualInterval,
+    QgsClassificationJenks,
+    QgsClassificationQuantile,
+    QgsClassificationPrettyBreaks,
+    QgsWkbTypes,
 )
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import QColor, QFont
 
 from .models import MapStyle, GraduatedMode
+
+
+def _wkb_geometry_type(wkb_type):
+    """Version-safe geometry type detection."""
+    try:
+        return QgsWkbTypes.geometryType(wkb_type)
+    except AttributeError:
+        return Qgis.geometryType(wkb_type)
+
+
+def _wkb_is_multi(wkb_type):
+    """Version-safe multi-type detection."""
+    try:
+        return QgsWkbTypes.isMultiType(wkb_type)
+    except AttributeError:
+        return Qgis.isMultiType(wkb_type)
 
 
 class MapRenderer:
@@ -122,16 +146,29 @@ class MapRenderer:
         renderer.setSourceSymbol(symbol)
         renderer.setSourceColorRamp(ramp)
         
-        # Map GraduatedMode enum to QgsGraduatedSymbolRenderer constants
-        qgis_mode = QgsGraduatedSymbolRenderer.Quantile
-        if mode == GraduatedMode.EQUAL_INTERVAL:
-            qgis_mode = QgsGraduatedSymbolRenderer.EqualInterval
-        elif mode == GraduatedMode.JENKS:
-            qgis_mode = QgsGraduatedSymbolRenderer.Jenks
-        elif mode == GraduatedMode.PRETTY:
-            qgis_mode = QgsGraduatedSymbolRenderer.Pretty
-            
-        renderer.setMode(qgis_mode)
+        # Map GraduatedMode enum to QgsClassificationMethod
+        _CLASSIFICATION_MAP = {
+            GraduatedMode.EQUAL_INTERVAL: QgsClassificationEqualInterval,
+            GraduatedMode.QUANTILE: QgsClassificationQuantile,
+            GraduatedMode.JENKS: QgsClassificationJenks,
+            GraduatedMode.PRETTY: QgsClassificationPrettyBreaks,
+        }
+        method_cls = _CLASSIFICATION_MAP.get(mode, QgsClassificationQuantile)
+        
+        try:
+            renderer.setClassificationMethod(method_cls())
+        except AttributeError:
+            # Fallback for older QGIS versions if setClassificationMethod is missing
+            # (though it has been available since 3.10)
+            qgis_mode = QgsGraduatedSymbolRenderer.Quantile
+            if mode == GraduatedMode.EQUAL_INTERVAL:
+                qgis_mode = QgsGraduatedSymbolRenderer.EqualInterval
+            elif mode == GraduatedMode.JENKS:
+                qgis_mode = QgsGraduatedSymbolRenderer.Jenks
+            elif mode == GraduatedMode.PRETTY:
+                qgis_mode = QgsGraduatedSymbolRenderer.Pretty
+            renderer.setMode(qgis_mode)
+
         renderer.updateClasses(layer, classes)
         
         layer.setRenderer(renderer)
@@ -188,7 +225,7 @@ class MapRenderer:
         rect_mm: Tuple[float, float, float, float],
         font_size: int = 18,
         bold: bool = True,
-        alignment: Qt.AlignmentFlag = Qt.AlignCenter,
+        alignment: int = ALIGN_CENTER,
     ) -> QgsLayoutItemLabel:
         """Add a title label to the layout."""
         label = QgsLayoutItemLabel(layout)
@@ -196,10 +233,19 @@ class MapRenderer:
         label.attemptMove(QgsLayoutPoint(rect_mm[0], rect_mm[1]))
         label.attemptResize(QgsLayoutSize(rect_mm[2], rect_mm[3]))
 
+        fmt = QgsTextFormat()
         font = QFont("Arial", font_size)
         font.setBold(bold)
-        label.setFont(font)
-        label.setHAlign(alignment)
+        fmt.setFont(font)
+        fmt.setSize(font_size)
+        label.setTextFormat(fmt)
+        
+        try:
+            label.setHAlign(alignment)
+        except AttributeError:
+            # Fallback for very old versions if needed
+            label.setHAlign(alignment)
+
 
         layout.addLayoutItem(label)
         return label
@@ -258,9 +304,21 @@ class MapRenderer:
         else:
             t_sz, sub_sz, sym_sz = 9, 7, 6
 
-        legend.setStyleFont(QgsLegendStyle.Title, QFont("Arial", t_sz, QFont.Bold))
-        legend.setStyleFont(QgsLegendStyle.Subgroup, QFont("Arial", sub_sz))
-        legend.setStyleFont(QgsLegendStyle.SymbolLabel, QFont("Arial", sym_sz))
+        for style_type, sz, is_bold in [
+            (QgsLegendStyle.Title, t_sz, True),
+            (QgsLegendStyle.Subgroup, sub_sz, False),
+            (QgsLegendStyle.SymbolLabel, sym_sz, False),
+        ]:
+            fmt = QgsTextFormat()
+            f = QFont("Arial", sz)
+            f.setBold(is_bold)
+            fmt.setFont(f)
+            fmt.setSize(sz)
+            try:
+                legend.setStyleTextFormat(style_type, fmt)
+            except AttributeError:
+                # Fallback for QGIS < 3.30
+                legend.setStyleFont(style_type, f)
 
         # Transparent background (parent will provide bg panel)
         legend.setBackgroundEnabled(False)
@@ -298,7 +356,12 @@ class MapRenderer:
         extent_width = extent.width()
 
         crs = map_item.crs()
-        if crs.isValid() and crs.mapUnits() == QgsUnitTypes.DistanceDegrees:
+        try:
+            _deg_unit = Qgis.DistanceUnit.Degrees
+        except AttributeError:
+            _deg_unit = QgsUnitTypes.DistanceDegrees
+
+        if crs.isValid() and crs.mapUnits() == _deg_unit:
             extent_width_m = extent_width * 111000
         else:
             extent_width_m = extent_width
@@ -337,7 +400,14 @@ class MapRenderer:
         scale_bar.setHeight(2.0)  # mm
 
         # Style
-        scale_bar.setFont(QFont("Arial", 7))
+        fmt = QgsTextFormat()
+        fmt.setFont(QFont("Arial", 7))
+        fmt.setSize(7)
+        try:
+            scale_bar.setTextFormat(fmt)
+        except AttributeError:
+            scale_bar.setFont(QFont("Arial", 7))
+
         scale_bar.setBackgroundEnabled(False)
         scale_bar.setFrameEnabled(False)
 
@@ -404,7 +474,10 @@ class MapRenderer:
 
         settings = QgsPalLayerSettings()
         settings.fieldName = field_name
-        settings.placement = QgsPalLayerSettings.OverPoint
+        try:
+            settings.placement = QgsPalLayerSettings.Placement.OverPoint
+        except AttributeError:
+            settings.placement = QgsPalLayerSettings.OverPoint
 
         text_format = QgsTextFormat()
         text_format.setFont(QFont("Arial", font_size))
@@ -441,8 +514,8 @@ class MapRenderer:
             return None
 
         # Detect geometry type for the memory layer URI and symbol
-        geom_type = QgsWkbTypes.geometryType(geometry.wkbType())
-        is_multi = QgsWkbTypes.isMultiType(geometry.wkbType())
+        geom_type = _wkb_geometry_type(geometry.wkbType())
+        is_multi = _wkb_is_multi(geometry.wkbType())
 
         if geom_type == QgsWkbTypes.PolygonGeometry:
             uri_type = "MultiPolygon" if is_multi else "Polygon"

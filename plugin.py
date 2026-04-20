@@ -106,8 +106,8 @@ class AutoAtlasProPlugin:
             dep_dialog = DependencyDialog(
                 dep_manager, parent=self.iface.mainWindow()
             )
-            dep_dialog.exec_()
+            dep_dialog.exec()
 
         # Launch the main wizard
         wizard = WizardDialog(self.iface, parent=self.iface.mainWindow())
-        wizard.exec_()
+        wizard.exec()
