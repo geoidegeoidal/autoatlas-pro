@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AutoAtlas Pro — From polygons to reports</title>
+  <style>
+    body { margin: 0; background: #0F172A; }
+    main { max-width: 960px; margin: 0 auto; }
+    svg { display: block; width: 100%; height: auto; }
+  </style>
+</head>
+<body>
+<main>
+<!--
+  Brand evidence: ui/theme.py, DARK_CORPORATE_QSS (dialog, header, group titles,
+  focused inputs): Segoe UI; #1E293B/#0F172A surfaces; #F1F5F9 text;
+  #7DD3FC/#38BDF8 accents. Arial and sans-serif are portable fallbacks.
+  Workflow evidence: README.md, Create your first report.
+  Edit this HTML first, then extract the complete SVG element verbatim into
+  report-workflow.svg, prefixed by an XML declaration. No scripts or imports.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" role="img" aria-labelledby="report-workflow-title report-workflow-desc">
+  <title id="report-workflow-title">From polygons to reports</title>
+  <desc id="report-workflow-desc">Load a polygon layer and its fields in QGIS. Configure Data, Style and Output in AutoAtlas Pro, generate PDF or PNG files, then review labels, legends, map extent and fonts before a larger batch.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 8 4 L 0 8 Z" fill="#F1F5F9"/>
+    </marker>
+    <marker id="arrow-accent" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 8 4 L 0 8 Z" fill="#38BDF8"/>
+    </marker>
+    <marker id="arrow-link" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 8 4 L 0 8 Z" fill="#7DD3FC"/>
+    </marker>
+  </defs>
+  <rect width="960" height="600" fill="#0F172A"/>
+  <g font-family="'Segoe UI', Arial, sans-serif" fill="#F1F5F9">
+    <text x="40" y="60" font-size="20" fill="#7DD3FC">AUTOATLAS PRO / QGIS</text>
+    <text x="40" y="108" font-size="36" font-weight="700">From polygons to reports</text>
+    <text x="40" y="148" font-size="24">Configure once. Generate files. Review the result.</text>
+
+    <!-- Connections precede nodes; the primary flow is left to right. -->
+    <path d="M 216 316 H 248" fill="none" stroke="#7DD3FC" stroke-width="2" marker-end="url(#arrow-link)"/>
+    <path d="M 552 316 H 584" fill="none" stroke="#38BDF8" stroke-width="2" marker-end="url(#arrow-accent)"/>
+    <path d="M 728 316 H 760" fill="none" stroke="#F1F5F9" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="40" y="196" width="176" height="240" rx="8" fill="#1E293B" stroke="#475569"/>
+    <text x="60" y="236" font-size="20" font-weight="700">Polygon layer</text>
+    <text x="60" y="280" font-size="20">Coverage</text>
+    <text x="60" y="312" font-size="20">ID field</text>
+    <text x="60" y="344" font-size="20">Indicators</text>
+    <text x="60" y="408" font-size="20">Loaded in QGIS</text>
+
+    <rect x="248" y="196" width="304" height="240" rx="8" fill="#1E293B" stroke="#38BDF8" stroke-width="2"/>
+    <text x="272" y="236" font-size="24" font-weight="700" fill="#7DD3FC">Configure the wizard</text>
+    <text x="272" y="276" font-size="20">Data · layer and fields</text>
+    <text x="272" y="312" font-size="20">Style · layout and context</text>
+    <text x="272" y="348" font-size="20">Output · format, DPI, folder</text>
+    <text x="272" y="408" font-size="20" font-weight="700">Click Generate</text>
+
+    <rect x="584" y="196" width="144" height="240" rx="8" fill="#1E293B" stroke="#475569"/>
+    <text x="604" y="236" font-size="24" font-weight="700">Reports</text>
+    <text x="604" y="292" font-size="20">PDF / PNG</text>
+    <text x="604" y="376" font-size="20">Destination</text>
+    <text x="604" y="408" font-size="20">folder</text>
+
+    <rect x="760" y="196" width="160" height="240" rx="8" fill="#1E293B" stroke="#475569"/>
+    <text x="780" y="236" font-size="24" font-weight="700">Review</text>
+    <text x="780" y="280" font-size="20">Labels</text>
+    <text x="780" y="312" font-size="20">Legends</text>
+    <text x="780" y="344" font-size="20">Map extent</text>
+    <text x="780" y="376" font-size="20">Fonts</text>
+
+    <text x="40" y="504" font-size="24" font-weight="700" fill="#7DD3FC">Start with a small coverage layer.</text>
+    <text x="40" y="544" font-size="24">Inspect the exported reports before generating a larger batch.</text>
+  </g>
+</svg>
+</main>
+</body>
+</html>
