@@ -65,6 +65,13 @@ On first launch, the plugin may offer optional Python dependencies for statistic
 <a id="first-report"></a>
 ## 📖 Create your first report
 
+![AutoAtlas Pro workflow: polygon layer and fields, wizard configuration, PDF or PNG reports, then visual review.](docs/readme/report-workflow.svg)
+
+Load a polygon layer in QGIS, configure **Data → Style → Output**, then generate
+PDF or PNG files and review them before scaling up. The diagram uses the plugin's
+colors and Segoe UI typography, with system-font fallbacks.
+[Editable diagram source](docs/readme/report-workflow.html).
+
 1. **Load** a vector layer with polygon geometries (e.g., communes, districts)
 2. **Open** AutoAtlas Pro from the Plugins menu or toolbar
 3. **Step 1 (Data)**: Select your coverage layer, ID field, and indicator fields.
